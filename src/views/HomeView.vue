@@ -157,7 +157,8 @@
 import { ref, reactive } from 'vue'
 import { useRouter } from 'vue-router'
 import { 
-  Loading, Location, CaretBottom, Search, Filter, MoreFilled 
+  Loading, Location, CaretBottom, Search, Filter, MoreFilled,
+  HomeFilled, Compass, Document, User
 } from '@element-plus/icons-vue'
 
 const router = useRouter()

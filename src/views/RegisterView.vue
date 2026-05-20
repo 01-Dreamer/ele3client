@@ -131,7 +131,7 @@ const sendCode = () => {
   display: flex;
   flex-direction: column;
   padding: 30px;
-  min-height: 100vh;
+  min-height: 100%;
   background-color: #ffffff;
   box-sizing: border-box;
 }
