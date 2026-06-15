@@ -205,7 +205,7 @@ const handleSort = (type: string) => {
 }
 
 const clickMerchant = (id: number) => {
-  console.log('Go to merchant:', id)
+  router.push(`/shop/${id}`)
 }
 
 const shops = reactive([
