@@ -2,7 +2,7 @@
   <div class="auth-page">
     <div class="logo-container">
       <img src="/favicon.ico" alt="饿了么" class="logo-img" />
-      <div class="app-name">仿饿了么</div>
+      <div class="app-name">饿了么</div>
     </div>
     
     <div class="form-container">

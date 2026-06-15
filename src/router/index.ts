@@ -1,6 +1,11 @@
 import { createRouter, createWebHistory } from 'vue-router'
+import ChatView from '../views/ChatView.vue'
 import HomeView from '../views/HomeView.vue'
+import LocationView from '../views/LocationView.vue'
 import LoginView from '../views/LoginView.vue'
+import MessageView from '../views/MessageView.vue'
+import OrderView from '../views/OrderView.vue'
+import ProfileView from '../views/ProfileView.vue'
 import RegisterView from '../views/RegisterView.vue'
 
 const router = createRouter({
@@ -16,9 +21,34 @@ const router = createRouter({
       redirect: '/'
     },
     {
+      path: '/chat',
+      name: 'chat',
+      component: ChatView
+    },
+    {
       path: '/login',
       name: 'login',
       component: LoginView
+    },
+    {
+      path: '/location',
+      name: 'location',
+      component: LocationView
+    },
+    {
+      path: '/message',
+      name: 'message',
+      component: MessageView
+    },
+    {
+      path: '/order',
+      name: 'order',
+      component: OrderView
+    },
+    {
+      path: '/profile',
+      name: 'profile',
+      component: ProfileView
     },
     {
       path: '/register',

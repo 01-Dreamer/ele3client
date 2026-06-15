@@ -54,11 +54,11 @@
       </div>
       <div 
         class="nav-item" 
-        :class="{ active: isNavActive('/discover') }"
-        @click="navigateTo('/discover')"
+        :class="{ active: isNavActive('/message') }"
+        @click="navigateTo('/message')"
       >
-        <el-icon size="22"><Compass /></el-icon>
-        <span>发现</span>
+        <el-icon size="22"><Message /></el-icon>
+        <span>消息</span>
       </div>
       
       <!-- AI Center Button -->
@@ -81,8 +81,8 @@
       </div>
       <div 
         class="nav-item" 
-        :class="{ active: isNavActive('/login') || isNavActive('/register') }"
-        @click="navigateTo('/login')"
+        :class="{ active: isNavActive('/profile') }"
+        @click="navigateTo('/profile')"
       >
         <el-icon size="22"><User /></el-icon>
         <span>我的</span>
@@ -94,7 +94,7 @@
 <script setup lang="ts">
 import { ref, nextTick } from 'vue'
 import { RouterView, useRouter, useRoute } from 'vue-router'
-import { HomeFilled, Compass, Document, User, Cpu, Position } from '@element-plus/icons-vue'
+import { HomeFilled, Message, Document, User, Cpu, Position } from '@element-plus/icons-vue'
 
 const router = useRouter()
 const route = useRoute()
