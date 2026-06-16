@@ -61,7 +61,7 @@
 
     <div class="supermember">
       <div class="left">
-        <el-image src="https://zxydata.oss-cn-chengdu.aliyuncs.com/ele/super_member.png" class="member-img" />
+        <el-image src="/ele-assets/super_member.png" class="member-img" />
         <h3>超级会员</h3>
         <p>&#8226; 每月享超值权益</p>
       </div>
@@ -188,16 +188,16 @@ const clickHotSearch = (item: string) => {
 
 // Data
 const foodTypes = reactive([
-  { name: '美食', img: 'https://zxydata.oss-cn-chengdu.aliyuncs.com/ele/dcfl01.png' },
-  { name: '早餐', img: 'https://zxydata.oss-cn-chengdu.aliyuncs.com/ele/dcfl02.png' },
-  { name: '跑腿代购', img: 'https://zxydata.oss-cn-chengdu.aliyuncs.com/ele/dcfl03.png' },
-  { name: '汉堡披萨', img: 'https://zxydata.oss-cn-chengdu.aliyuncs.com/ele/dcfl04.png' },
-  { name: '甜品饮品', img: 'https://zxydata.oss-cn-chengdu.aliyuncs.com/ele/dcfl05.png' },
-  { name: '速食简餐', img: 'https://zxydata.oss-cn-chengdu.aliyuncs.com/ele/dcfl06.png' },
-  { name: '地方小吃', img: 'https://zxydata.oss-cn-chengdu.aliyuncs.com/ele/dcfl07.png' },
-  { name: '米粉面馆', img: 'https://zxydata.oss-cn-chengdu.aliyuncs.com/ele/dcfl08.png' },
-  { name: '包子粥铺', img: 'https://zxydata.oss-cn-chengdu.aliyuncs.com/ele/dcfl09.png' },
-  { name: '炸鸡炸串', img: 'https://zxydata.oss-cn-chengdu.aliyuncs.com/ele/dcfl10.png' },
+  { name: '美食', img: '/ele-assets/dcfl01.png' },
+  { name: '早餐', img: '/ele-assets/dcfl02.png' },
+  { name: '跑腿代购', img: '/ele-assets/dcfl03.png' },
+  { name: '汉堡披萨', img: '/ele-assets/dcfl04.png' },
+  { name: '甜品饮品', img: '/ele-assets/dcfl05.png' },
+  { name: '速食简餐', img: '/ele-assets/dcfl06.png' },
+  { name: '地方小吃', img: '/ele-assets/dcfl07.png' },
+  { name: '米粉面馆', img: '/ele-assets/dcfl08.png' },
+  { name: '包子粥铺', img: '/ele-assets/dcfl09.png' },
+  { name: '炸鸡炸串', img: '/ele-assets/dcfl10.png' },
 ])
 
 const handleSort = (type: string) => {
@@ -378,7 +378,7 @@ const shops = reactive([
   width: 94%;
   margin: 10px auto;
   height: 110px;
-  background-image: url("https://zxydata.oss-cn-chengdu.aliyuncs.com/ele/index_banner.png");
+  background-image: url("/ele-assets/index_banner.png");
   background-repeat: no-repeat;
   background-size: cover;
   background-position: center;
