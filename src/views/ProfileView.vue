@@ -8,23 +8,23 @@
       <el-avatar
         class="profile-avatar"
         :size="68"
-        :src="userProfile.avatarUrl"
+        :src="userStore.avatar"
       />
 
       <div class="profile-info">
-        <h3>{{ userProfile.nickname }}</h3>
-        <p>{{ userProfile.phone }}</p>
+        <h3>{{ userStore.nickname }}</h3>
+        <p>{{ userStore.userInfo?.email || '' }}</p>
       </div>
     </section>
 
     <section class="balance-section">
       <div class="balance-main">
         <span>账户余额</span>
-        <strong>&yen;{{ userProfile.balance.toFixed(2) }}</strong>
+        <strong>&yen;{{ balance.toFixed(2) }}</strong>
       </div>
       <div class="balance-actions">
-        <el-button type="primary" plain round>充值</el-button>
-        <el-button type="success" plain round>提现</el-button>
+        <el-button type="primary" plain round @click="handleRecharge">充值</el-button>
+        <el-button type="success" plain round @click="handleWithdraw">提现</el-button>
       </div>
     </section>
 
@@ -33,101 +33,246 @@
         <el-button type="primary" link class="profile-link-btn" @click="router.push('/location')">
           位置管理
         </el-button>
-        <strong>{{ userProfile.currentAddress }}</strong>
+        <strong>{{ locationStore.currentAddress }}</strong>
       </div>
       <div class="info-item">
-        <el-button type="primary" link class="profile-link-btn">我的店铺</el-button>
-        <strong>{{ userProfile.shopName }}</strong>
+        <el-button type="primary" link class="profile-link-btn" @click="router.push('/shop')">
+          我的店铺
+        </el-button>
+        <strong>查看店铺</strong>
       </div>
     </section>
 
     <section class="bind-card">
-      <div class="bind-card-title">身份绑定</div>
-      <div
-        v-for="item in bindOptions"
-        :key="item.name"
-        class="bind-item"
-      >
+      <div class="bind-card-title">账号信息</div>
+      <div class="bind-item">
         <div class="bind-left">
-          <span class="bind-icon" :style="{ backgroundColor: item.color }">
-            <el-icon>
-              <component :is="item.icon" />
-            </el-icon>
+          <span class="bind-icon" style="background-color: #409eff;">
+            <el-icon><Message /></el-icon>
           </span>
-          <span>{{ item.name }}</span>
+          <span>邮箱</span>
         </div>
-        <span class="bind-account">{{ item.account }}</span>
-        <el-tag size="small" effect="plain" :type="item.account ? 'primary' : 'info'">
-          {{ item.account ? '切换绑定' : '未绑定' }}
-        </el-tag>
+        <span class="bind-account">{{ userStore.userInfo?.email || '未绑定' }}</span>
+      </div>
+      <div class="bind-item">
+        <div class="bind-left">
+          <span class="bind-icon" style="background-color: #67c23a;">
+            <el-icon><User /></el-icon>
+          </span>
+          <span>角色</span>
+        </div>
+        <el-tag size="small" effect="plain">{{ roleLabel }}</el-tag>
+      </div>
+      <div class="bind-item">
+        <div class="bind-left">
+          <span class="bind-icon" style="background-color: #e6a23c;">
+            <el-icon><Key /></el-icon>
+          </span>
+          <span>密码</span>
+        </div>
+        <el-button type="primary" link size="small" @click="showChangePassword = true">
+          修改密码
+        </el-button>
       </div>
     </section>
 
     <section class="account-actions">
-      <el-button plain round>切换账号</el-button>
-      <el-button type="danger" plain round>安全退出</el-button>
+      <el-button v-if="!userStore.isLoggedIn" type="primary" round @click="router.push('/login')">
+        登录 / 注册
+      </el-button>
+      <el-button v-else type="danger" plain round @click="handleLogout">
+        安全退出
+      </el-button>
     </section>
+
+    <!-- 修改密码弹窗 -->
+    <el-dialog v-model="showChangePassword" title="修改密码" width="90%">
+      <el-form label-position="top" size="default">
+        <el-form-item label="旧密码">
+          <el-input v-model="pwForm.oldPassword" type="password" show-password />
+        </el-form-item>
+        <el-form-item label="新密码">
+          <el-input v-model="pwForm.newPassword" type="password" show-password />
+        </el-form-item>
+        <el-form-item label="邮箱验证码">
+          <div style="display:flex;gap:8px;">
+            <el-input v-model="pwForm.emailCaptcha" placeholder="验证码" />
+            <el-button
+              :loading="pwSending"
+              :disabled="pwCountdown > 0"
+              @click="sendChangePwCaptcha"
+            >
+              {{ pwCountdown > 0 ? `${pwCountdown}s` : '获取' }}
+            </el-button>
+          </div>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="showChangePassword = false">取消</el-button>
+        <el-button type="primary" :loading="pwSubmitting" @click="submitChangePassword">
+          确认修改
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { ChatRound, Message, Money, School } from '@element-plus/icons-vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { User, Message, Key } from '@element-plus/icons-vue'
+import { useUserStore } from '@/stores/user'
+import { useLocationStore } from '@/stores/location'
+import { getBalanceApi, alipayRechargeApi, alipayWithdrawApi } from '@/api/payment'
+import { changePasswordApi, sendChangePasswordEmailCaptchaApi } from '@/api/auth'
 
-interface UserProfile {
-  nickname: string
-  phone: string
-  avatarUrl: string
-  balance: number
-  currentAddress: string
-  shopName: string
-}
-
-interface BindOption {
-  name: string
-  color: string
-  icon: typeof Money
-  account: string
-}
-
-const userProfile = ref<UserProfile>({
-  nickname: '饿了么用户',
-  phone: '138****8888',
-  avatarUrl: 'https://zxydata.oss-cn-chengdu.aliyuncs.com/ele/sj02.png',
-  balance: 88.5,
-  currentAddress: '成都市天府软件园D区',
-  shopName: '万家饺子（软件园店）'
-})
-
+const userStore = useUserStore()
+const locationStore = useLocationStore()
 const router = useRouter()
 
-const bindOptions = ref<BindOption[]>([
-  {
-    name: '邮箱',
-    color: '#409eff',
-    icon: Message,
-    account: ''
-  },
-  {
-    name: '支付宝',
-    color: '#1677ff',
-    icon: Money,
-    account: ''
-  },
-  {
-    name: '微信',
-    color: '#07c160',
-    icon: ChatRound,
-    account: ''
-  },
-  {
-    name: '今日校园',
-    color: '#f5a623',
-    icon: School,
-    account: '20231120171'
+const balance = ref(0)
+const showChangePassword = ref(false)
+
+const loadingBalance = ref(false)
+
+const pwForm = reactive({
+  oldPassword: '',
+  newPassword: '',
+  emailCaptcha: '',
+})
+const pwSubmitting = ref(false)
+const pwSending = ref(false)
+const pwCountdown = ref(0)
+let pwTimer: number | undefined
+
+const roleLabel = computedRoleLabel()
+
+function computedRoleLabel() {
+  const role = userStore.userInfo?.role
+  const map: Record<string, string> = {
+    USER: '普通用户',
+    ADMIN: '管理员',
+    MERCHANT: '商家',
+    RIDER: '骑手',
   }
-])
+  return map[role || ''] || role || '普通用户'
+}
+
+const fetchBalance = async () => {
+  if (!userStore.token) return
+  loadingBalance.value = true
+  try {
+    const result = await getBalanceApi(userStore.token)
+    balance.value = result.balance
+  } catch {
+    // 未登录或接口不可用时静默处理
+  } finally {
+    loadingBalance.value = false
+  }
+}
+
+const handleRecharge = async () => {
+  if (!userStore.isLoggedIn) {
+    ElMessage.warning('请先登录')
+    return
+  }
+  try {
+    const amount = 20
+    const result = await alipayRechargeApi({ amount }, userStore.token)
+    ElMessage.success(`充值订单已创建：${result.payUrl}`)
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '充值失败')
+  }
+}
+
+const handleWithdraw = async () => {
+  if (!userStore.isLoggedIn) {
+    ElMessage.warning('请先登录')
+    return
+  }
+  try {
+    const amount = 10
+    const result = await alipayWithdrawApi(
+      { alipayUserId: 'example', amount },
+      userStore.token
+    )
+    ElMessage.success(`提现申请已提交，状态：${result.status}`)
+    fetchBalance()
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '提现失败')
+  }
+}
+
+const sendChangePwCaptcha = async () => {
+  if (!userStore.token || !userStore.userInfo?.email) return
+  pwSending.value = true
+  try {
+    await sendChangePasswordEmailCaptchaApi(
+      {
+        email: userStore.userInfo.email,
+        captchaId: '',
+        captchaData: {},
+      },
+      userStore.token
+    )
+    ElMessage.success('验证码已发送')
+    pwCountdown.value = 60
+    pwTimer = window.setInterval(() => {
+      pwCountdown.value--
+      if (pwCountdown.value <= 0 && pwTimer) {
+        clearInterval(pwTimer)
+        pwTimer = undefined
+      }
+    }, 1000)
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '发送失败')
+  } finally {
+    pwSending.value = false
+  }
+}
+
+const submitChangePassword = async () => {
+  if (!userStore.token) return
+  if (!pwForm.oldPassword || !pwForm.newPassword || !pwForm.emailCaptcha) {
+    ElMessage.warning('请填写完整信息')
+    return
+  }
+  pwSubmitting.value = true
+  try {
+    await changePasswordApi(
+      {
+        oldPassword: pwForm.oldPassword,
+        emailCaptcha: pwForm.emailCaptcha,
+        newPassword: pwForm.newPassword,
+      },
+      userStore.token
+    )
+    ElMessage.success('密码修改成功，请重新登录')
+    showChangePassword.value = false
+    handleLogout()
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '修改失败')
+  } finally {
+    pwSubmitting.value = false
+  }
+}
+
+const handleLogout = () => {
+  ElMessageBox.confirm('确定要退出登录吗？', '提示', {
+    confirmButtonText: '确定',
+    cancelButtonText: '取消',
+    type: 'warning',
+  }).then(() => {
+    userStore.logout()
+    ElMessage.success('已退出登录')
+    router.push('/')
+  }).catch(() => {})
+}
+
+onMounted(() => {
+  fetchBalance()
+})
 </script>
 
 <style scoped>
@@ -245,12 +390,6 @@ const bindOptions = ref<BindOption[]>([
   border-bottom: none;
 }
 
-.info-item span {
-  flex-shrink: 0;
-  color: #666666;
-  font-size: 14px;
-}
-
 .profile-link-btn {
   flex-shrink: 0;
   padding: 0;
@@ -332,13 +471,12 @@ const bindOptions = ref<BindOption[]>([
 
 .account-actions {
   margin: 16px 12px 0;
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
+  display: flex;
+  justify-content: center;
 }
 
 .account-actions :deep(.el-button) {
-  width: 100%;
+  min-width: 200px;
   margin-left: 0;
 }
 </style>

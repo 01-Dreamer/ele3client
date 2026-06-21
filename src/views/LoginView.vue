@@ -25,6 +25,24 @@
             show-password
           />
         </el-form-item>
+
+        <el-form-item>
+          <div class="captcha-row">
+            <el-input
+              v-model="captchaCode"
+              placeholder="请输入验证码"
+              clearable
+            />
+            <button
+              type="button"
+              class="captcha-image-btn"
+              @click="loadCaptcha"
+            >
+              <img v-if="captchaImage" :src="captchaImage" alt="验证码" />
+              <span v-else>刷新</span>
+            </button>
+          </div>
+        </el-form-item>
         
         <el-form-item>
           <el-button 
@@ -39,45 +57,79 @@
       </el-form>
       
       <div class="action-links">
-        <el-link :underline="false">忘记密码？</el-link>
+        <el-link :underline="false" @click="router.push('/forgot-password')">忘记密码？</el-link>
         <el-link type="primary" :underline="false" @click="router.push('/register')">新用户注册</el-link>
       </div>
-    </div>
-    
-    <div class="agreement">
-      <p>登录即代表您已同意 <el-link type="primary">《用户服务协议》</el-link> 和 <el-link type="primary">《隐私政策》</el-link></p>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { onMounted, ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { User, Lock } from '@element-plus/icons-vue'
+import { useUserStore } from '@/stores/user'
+import { getImageCaptchaApi } from '@/api/risk'
 
 const router = useRouter()
+const route = useRoute()
+const userStore = useUserStore()
 const email = ref('')
 const password = ref('')
+const captchaId = ref('')
+const captchaCode = ref('')
+const captchaImage = ref('')
 const loading = ref(false)
 
-const handleLogin = () => {
-  if (!email.value || !password.value) {
-    ElMessage.warning('请输入邮箱和密码')
+const handleLogin = async () => {
+  if (!email.value || !password.value || !captchaCode.value) {
+    ElMessage.warning('请输入邮箱、密码和验证码')
     return
   }
   
   loading.value = true
-  
-  // Mock login logic
-  console.log('Login', { email: email.value, password: password.value })
-  
-  setTimeout(() => {
+
+  try {
+    await userStore.login({
+      email: email.value,
+      password: password.value,
+      captchaId: captchaId.value,
+      captchaCode: captchaCode.value
+    })
+
     loading.value = false
     ElMessage.success('登录成功！')
-    // router.push('/') // Navigate to home later
-  }, 1000)
+    router.replace(getRedirectPath())
+  } catch (error) {
+    loading.value = false
+    ElMessage.error(error instanceof Error ? error.message : '登录失败')
+    captchaCode.value = ''
+    loadCaptcha()
+  }
 }
+
+const loadCaptcha = async () => {
+  try {
+    const captcha = await getImageCaptchaApi()
+    captchaId.value = captcha.id
+    captchaImage.value = captcha.image
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '验证码加载失败')
+  }
+}
+
+const getRedirectPath = () => {
+  const redirect = route.query.redirect
+
+  if (typeof redirect === 'string' && redirect.startsWith('/')) {
+    return redirect
+  }
+
+  return '/'
+}
+
+onMounted(loadCaptcha)
 </script>
 
 <style scoped>
@@ -126,17 +178,36 @@ const handleLogin = () => {
   margin-top: 10px;
 }
 
+.captcha-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.captcha-image-btn {
+  width: 116px;
+  height: 40px;
+  flex-shrink: 0;
+  border: 1px solid #dcdfe6;
+  border-radius: 6px;
+  background-color: #f7f8fa;
+  color: #888888;
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.captcha-image-btn img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+}
+
 .action-links {
   display: flex;
   justify-content: space-between;
   margin-top: 10px;
 }
 
-.agreement {
-  text-align: center;
-  font-size: 13px;
-  color: #999;
-  margin-bottom: 20px;
-  line-height: 1.5;
-}
 </style>

@@ -1,14 +1,15 @@
 <template>
   <div class="shop-page">
     <header class="shop-header">
-      <h2>商家信息</h2>
+      <h2 v-if="shop">商家信息</h2>
+      <h2 v-else>加载中...</h2>
     </header>
 
-    <section class="shop-hero">
+    <section v-if="shop" class="shop-hero">
       <div class="shop-summary">
         <el-image
           class="shop-cover"
-          :src="shop.cover"
+          :src="shop.avatar"
           fit="cover"
         />
 
@@ -20,16 +21,16 @@
 
       <div class="shop-meta">
         <div class="meta-item">
-          <span>起送</span>
-          <strong>&yen;{{ shop.startPrice }}</strong>
-        </div>
-        <div class="meta-item">
-          <span>配送</span>
+          <span>配送费</span>
           <strong>&yen;{{ shop.deliveryFee }}</strong>
         </div>
         <div class="meta-item">
+          <span>评分</span>
+          <strong>{{ shop.reviewScore }}分</strong>
+        </div>
+        <div class="meta-item">
           <span>营业时间</span>
-          <strong>{{ shop.businessHours }}</strong>
+          <strong>{{ shop.openTime }}-{{ shop.closeTime }}</strong>
         </div>
       </div>
       <div class="shop-actions">
@@ -52,43 +53,68 @@
       </div>
     </section>
 
+    <div v-if="!shop && !loading" class="empty-state">
+      <el-empty description="店铺不存在" />
+    </div>
+
+    <!-- 评价列表 -->
     <section v-if="activeSection === 'comments'" class="comment-section">
+      <div v-if="reviewLoading" class="loading-state">
+        <el-icon class="is-loading" size="20"><Loading /></el-icon>
+        <span>评价加载中...</span>
+      </div>
+
       <div
-        v-for="comment in comments"
-        :key="comment.id"
+        v-for="review in reviews"
+        :key="review.reviewId"
         class="comment-item"
       >
         <el-avatar
           class="comment-avatar"
           :size="34"
-          :src="comment.avatarUrl"
+          :src="getReviewAvatar(review.userId)"
         />
 
         <div class="comment-main">
           <div class="comment-top">
-            <strong>{{ comment.nickname }}</strong>
-            <span>{{ comment.createdAt }}</span>
+            <strong>{{ review.userId }}</strong>
+            <span>{{ formatTime(review.createTime) }}</span>
           </div>
           <el-rate
-            v-model="comment.rating"
+            v-model="review.score"
             disabled
             size="small"
             text-color="#ff9900"
           />
-          <p>{{ comment.content }}</p>
+          <p>{{ review.content }}</p>
 
-          <div v-if="comment.reply" class="comment-reply">
-            <strong>商家回复</strong>
-            <span>{{ comment.reply }}</span>
+          <div v-if="review.images && review.images.length" class="review-images">
+            <el-image
+              v-for="(img, i) in review.images"
+              :key="i"
+              :src="img"
+              fit="cover"
+              class="review-img"
+            />
           </div>
         </div>
       </div>
+
+      <div v-if="!reviewLoading && reviews.length === 0" class="empty-state">
+        <el-empty description="暂无评价" :image-size="60" />
+      </div>
     </section>
 
+    <!-- 商品列表 -->
     <section v-if="activeSection === 'menu'" class="product-list">
+      <div v-if="itemLoading" class="loading-state">
+        <el-icon class="is-loading" size="20"><Loading /></el-icon>
+        <span>商品加载中...</span>
+      </div>
+
       <div
         v-for="product in products"
-        :key="product.id"
+        :key="product.itemId"
         class="product-item"
       >
         <el-image
@@ -106,26 +132,27 @@
 
         <div class="product-actions">
           <el-button
-            v-if="product.quantity > 0"
+            v-if="getCartQty(product.itemId) > 0"
             circle
             size="small"
             class="count-btn minus-btn"
             :icon="Minus"
-            @click.stop="decrement(product)"
+            @click.stop="decrement(product.itemId)"
           />
-          <span v-if="product.quantity > 0" class="quantity">{{ product.quantity }}</span>
+          <span v-if="getCartQty(product.itemId) > 0" class="quantity">{{ getCartQty(product.itemId) }}</span>
           <el-button
             circle
             size="small"
             type="primary"
             class="count-btn"
             :icon="Plus"
-            @click.stop="increment(product)"
+            @click.stop="increment(product.itemId)"
           />
         </div>
       </div>
     </section>
 
+    <!-- 购物车栏 -->
     <footer v-if="activeSection === 'menu'" class="cart-bar">
       <div class="cart-left">
         <el-badge :value="totalCount" :hidden="totalCount === 0" class="cart-badge">
@@ -135,7 +162,7 @@
         </el-badge>
         <div class="cart-price">
           <strong>&yen;{{ totalAmount.toFixed(2) }}</strong>
-          <span>另需配送费{{ shop.deliveryFee }}元</span>
+          <span v-if="shop">另需配送费{{ shop.deliveryFee }}元</span>
         </div>
       </div>
 
@@ -143,158 +170,269 @@
         class="checkout-btn"
         type="success"
         :disabled="totalCount === 0"
+        @click="goCheckout"
       >
         去结算
       </el-button>
     </footer>
+
+    <!-- 下单弹窗 -->
+    <el-dialog
+      v-model="orderDialogVisible"
+      title="确认订单"
+      width="90%"
+      :close-on-click-modal="false"
+    >
+      <el-form v-if="shop" label-position="top" size="default">
+        <el-form-item label="收货人">
+          <el-input v-model="orderForm.receiverName" placeholder="姓名" />
+        </el-form-item>
+        <el-form-item label="联系电话">
+          <el-input v-model="orderForm.receiverPhone" placeholder="手机号" />
+        </el-form-item>
+        <el-form-item label="收货地址">
+          <el-input v-model="orderForm.receiverAddress" placeholder="详细地址" />
+        </el-form-item>
+        <el-form-item label="备注">
+          <el-input v-model="orderForm.remark" placeholder="口味、配送要求等（选填）" />
+        </el-form-item>
+
+        <div class="order-summary">
+          <div class="order-summary-item" v-for="item in orderItems" :key="item.shopItemId">
+            <span>{{ getItemName(item.shopItemId) }} x{{ item.quantity }}</span>
+            <strong>&yen;{{ (getItemPrice(item.shopItemId) * item.quantity).toFixed(2) }}</strong>
+          </div>
+          <div class="order-summary-total">
+            <span>合计</span>
+            <strong>&yen;{{ totalAmount.toFixed(2) }}</strong>
+          </div>
+        </div>
+      </el-form>
+
+      <template #footer>
+        <el-button @click="orderDialogVisible = false">取消</el-button>
+        <el-button
+          type="primary"
+          :loading="orderSubmitting"
+          @click="submitOrder"
+        >
+          提交订单
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, reactive, ref } from 'vue'
-import { useRouter } from 'vue-router'
-import { Minus, Plus, ShoppingCart } from '@element-plus/icons-vue'
-
-interface ShopInfo {
-  name: string
-  cover: string
-  startPrice: number
-  deliveryFee: number
-  businessHours: string
-  description: string
-}
-
-interface Product {
-  id: number
-  name: string
-  description: string
-  price: number
-  image: string
-  quantity: number
-}
-
-interface CommentItem {
-  id: number
-  nickname: string
-  avatarUrl: string
-  createdAt: string
-  rating: number
-  content: string
-  reply: string
-}
+import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { ElMessage } from 'element-plus'
+import { Minus, Plus, ShoppingCart, Loading } from '@element-plus/icons-vue'
+import { useUserStore } from '@/stores/user'
+import { getShopApi, listShopItemApi, listShopReviewApi, type ShopVO, type ShopItemVO, type ShopReviewVO } from '@/api/shop'
+import { createOrderApi, type OrderCreateItem } from '@/api/order'
 
 type ShopSection = 'menu' | 'comments'
 
-const shop: ShopInfo = {
-  name: '万家饺子（软件园E18店）',
-  cover: 'https://zxydata.oss-cn-chengdu.aliyuncs.com/ele/sj01.png',
-  startPrice: 15,
-  deliveryFee: 3,
-  businessHours: '09:00-22:00',
-  description: '手工现包水饺，主打鲜肉和三鲜口味，支持外卖配送。'
-}
-
+const route = useRoute()
 const router = useRouter()
+const userStore = useUserStore()
+
+const shop = ref<ShopVO | null>(null)
+const items = ref<ShopItemVO[]>([])
+const products = computed(() => items.value)
+const reviews = ref<ShopReviewVO[]>([])
+const loading = ref(false)
+const itemLoading = ref(false)
+const reviewLoading = ref(false)
 const activeSection = ref<ShopSection>('menu')
 
-const products = reactive<Product[]>([
-  {
-    id: 1,
-    name: '纯肉鲜肉（水饺）',
-    description: '新鲜猪肉，皮薄馅足',
-    price: 15,
-    image: 'https://zxydata.oss-cn-chengdu.aliyuncs.com/ele/sj01.png',
-    quantity: 3
-  },
-  {
-    id: 2,
-    name: '玉米鲜肉（水饺）',
-    description: '甜玉米搭配鲜肉，清甜不腻',
-    price: 16,
-    image: 'https://zxydata.oss-cn-chengdu.aliyuncs.com/ele/sj02.png',
-    quantity: 2
-  },
-  {
-    id: 3,
-    name: '虾仁三鲜（蒸饺）',
-    description: '虾仁、鸡蛋、韭菜的经典搭配',
-    price: 22,
-    image: 'https://zxydata.oss-cn-chengdu.aliyuncs.com/ele/dcfl01.png',
-    quantity: 0
-  },
-  {
-    id: 4,
-    name: '素三鲜（蒸饺）',
-    description: '清爽素馅，适合轻食晚餐',
-    price: 15,
-    image: 'https://zxydata.oss-cn-chengdu.aliyuncs.com/ele/dcfl07.png',
-    quantity: 0
-  },
-  {
-    id: 5,
-    name: '番茄鸡蛋汤',
-    description: '热乎乎一碗，搭配饺子正好',
-    price: 9,
-    image: 'https://zxydata.oss-cn-chengdu.aliyuncs.com/ele/dcfl06.png',
-    quantity: 0
-  }
-])
+// 购物车: itemId -> quantity
+const cart = reactive<Record<string, number>>({})
 
-const comments = reactive<CommentItem[]>([
-  {
-    id: 1,
-    nickname: '小张同学',
-    avatarUrl: '/default-avatar.svg',
-    createdAt: '今天 12:38',
-    rating: 5,
-    content: '饺子皮薄馅多，送过来还是热的，纯肉鲜肉很好吃。',
-    reply: '谢谢喜欢，我们会继续保持出餐速度。'
-  },
-  {
-    id: 2,
-    nickname: '爱吃蒸饺',
-    avatarUrl: '/default-avatar.svg',
-    createdAt: '昨天 18:20',
-    rating: 4,
-    content: '虾仁三鲜味道不错，配送也挺快，下次想试试玉米鲜肉。',
-    reply: '欢迎下次再来，玉米鲜肉也是店里的热门款。'
-  },
-  {
-    id: 3,
-    nickname: '软件园打工人',
-    avatarUrl: '/default-avatar.svg',
-    createdAt: '6月13日',
-    rating: 5,
-    content: '中午点餐很方便，备注不要香菜也有认真看。',
-    reply: ''
+// 订单
+const orderDialogVisible = ref(false)
+const orderSubmitting = ref(false)
+const orderForm = reactive({
+  receiverName: '',
+  receiverPhone: '',
+  receiverAddress: '',
+  remark: '',
+})
+
+const fetchShop = async (shopId: string) => {
+  loading.value = true
+  try {
+    shop.value = await getShopApi(shopId)
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '店铺加载失败')
+  } finally {
+    loading.value = false
   }
-])
+}
+
+const fetchItems = async (shopId: string) => {
+  itemLoading.value = true
+  try {
+    items.value = await listShopItemApi(shopId)
+  } catch {
+    // 降级为空
+  } finally {
+    itemLoading.value = false
+  }
+}
+
+const fetchReviews = async (shopId: string) => {
+  reviewLoading.value = true
+  try {
+    const result = await listShopReviewApi(shopId)
+    reviews.value = result.records || []
+  } catch {
+    // 降级为空
+  } finally {
+    reviewLoading.value = false
+  }
+}
+
+const initShop = (id: string) => {
+  fetchShop(id)
+  fetchItems(id)
+  fetchReviews(id)
+}
+
+// 从路由获取 shopId
+const shopIdFromRoute = computed(() => {
+  const id = route.params.id
+  if (typeof id === 'string' && id) return id
+  // 如果当前不在 /shop/:id，使用查询参数或默认值
+  return ''
+})
+
+watch(
+  () => route.params.id,
+  (newId) => {
+    if (typeof newId === 'string' && newId) {
+      initShop(newId)
+    }
+  }
+)
+
+onMounted(() => {
+  const id = shopIdFromRoute.value
+  if (id) {
+    initShop(id)
+  }
+})
+
+// 购物车逻辑
+const getCartQty = (itemId: string) => cart[itemId] || 0
+
+const increment = (itemId: string) => {
+  if (!cart[itemId]) {
+    cart[itemId] = 1
+  } else {
+    cart[itemId] += 1
+  }
+}
+
+const decrement = (itemId: string) => {
+  if (cart[itemId] && cart[itemId] > 0) {
+    cart[itemId] -= 1
+  }
+}
+
+const getItemName = (itemId: string) => items.value.find(i => i.itemId === itemId)?.name || ''
+const getItemPrice = (itemId: string) => items.value.find(i => i.itemId === itemId)?.price || 0
+
+const orderItems = computed<OrderCreateItem[]>(() => {
+  return Object.entries(cart)
+    .filter(([, qty]) => qty > 0)
+    .map(([itemId, quantity]) => ({
+      shopItemId: itemId,
+      quantity,
+    }))
+})
 
 const totalCount = computed(() => {
-  return products.reduce((sum, product) => sum + product.quantity, 0)
+  return Object.values(cart).reduce((sum, q) => sum + q, 0)
 })
 
 const totalAmount = computed(() => {
-  return products.reduce((sum, product) => {
-    return sum + product.price * product.quantity
+  return Object.entries(cart).reduce((sum, [itemId, qty]) => {
+    return sum + getItemPrice(itemId) * qty
   }, 0)
 })
 
-const increment = (product: Product) => {
-  product.quantity += 1
+const goCheckout = () => {
+  if (!userStore.isLoggedIn) {
+    ElMessage.warning('请先登录')
+    router.push({ path: '/login', query: { redirect: route.fullPath } })
+    return
+  }
+  orderForm.receiverName = ''
+  orderForm.receiverPhone = ''
+  orderForm.receiverAddress = ''
+  orderForm.remark = ''
+  orderDialogVisible.value = true
 }
 
-const decrement = (product: Product) => {
-  if (product.quantity > 0) {
-    product.quantity -= 1
+const submitOrder = async () => {
+  if (!shop.value) return
+  if (!orderForm.receiverName || !orderForm.receiverPhone || !orderForm.receiverAddress) {
+    ElMessage.warning('请填写收货信息')
+    return
+  }
+
+  orderSubmitting.value = true
+  try {
+    await createOrderApi(
+      {
+        shopId: shop.value.shopId,
+        receiverName: orderForm.receiverName,
+        receiverPhone: orderForm.receiverPhone,
+        receiverAddress: orderForm.receiverAddress,
+        receiverLongitude: shop.value.longitude,
+        receiverLatitude: shop.value.latitude,
+        remark: orderForm.remark || undefined,
+        items: orderItems.value,
+      },
+      userStore.token
+    )
+    ElMessage.success('下单成功')
+    orderDialogVisible.value = false
+    // 清空购物车
+    Object.keys(cart).forEach(k => delete cart[k])
+    router.push('/order')
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '下单失败')
+  } finally {
+    orderSubmitting.value = false
+  }
+}
+
+// 评价相关
+const getReviewAvatar = (_userId: string) => '/default-avatar.svg'
+
+const formatTime = (timeStr: string) => {
+  if (!timeStr) return ''
+  try {
+    const d = new Date(timeStr)
+    const now = new Date()
+    const diff = now.getTime() - d.getTime()
+    if (diff < 86400000) return `今天 ${d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}`
+    if (diff < 172800000) return `昨天 ${d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}`
+    return `${d.getMonth() + 1}月${d.getDate()}日`
+  } catch {
+    return timeStr
   }
 }
 
 const contactShop = () => {
+  if (!shop.value) return
   router.push({
     path: '/chat',
     query: {
-      nickname: shop.name
+      nickname: shop.value.name
     }
   })
 }
@@ -324,6 +462,20 @@ const toggleSection = () => {
   color: #ffffff;
   font-size: 20px;
   font-weight: 600;
+}
+
+.empty-state {
+  padding: 40px;
+}
+
+.loading-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  color: #999;
+  gap: 8px;
+  font-size: 14px;
 }
 
 .shop-hero {
@@ -473,20 +625,16 @@ const toggleSection = () => {
   line-height: 1.45;
 }
 
-.comment-reply {
+.review-images {
+  display: flex;
+  gap: 6px;
   margin-top: 8px;
-  padding: 8px 9px;
-  border-radius: 6px;
-  background-color: #ffffff;
-  color: #666666;
-  font-size: 12px;
-  line-height: 1.45;
 }
 
-.comment-reply strong {
-  margin-right: 6px;
-  color: #0085ff;
-  font-weight: 600;
+.review-img {
+  width: 60px;
+  height: 60px;
+  border-radius: 4px;
 }
 
 .product-list {
@@ -642,5 +790,34 @@ const toggleSection = () => {
   border-radius: 0;
   font-size: 17px;
   font-weight: 700;
+}
+
+/* 订单弹窗样式 */
+.order-summary {
+  background: #f8f9fa;
+  border-radius: 8px;
+  padding: 12px;
+  margin-top: 10px;
+}
+
+.order-summary-item {
+  display: flex;
+  justify-content: space-between;
+  padding: 6px 0;
+  font-size: 14px;
+  color: #666;
+}
+
+.order-summary-total {
+  display: flex;
+  justify-content: space-between;
+  padding-top: 10px;
+  margin-top: 6px;
+  border-top: 1px solid #e8e8e8;
+  font-size: 16px;
+}
+
+.order-summary-total strong {
+  color: #ff5339;
 }
 </style>

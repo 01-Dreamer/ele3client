@@ -4,23 +4,12 @@
       <h2>订单</h2>
     </header>
 
-    <section class="role-section">
-      <el-tabs v-model="activeRole" stretch class="role-tabs">
-        <el-tab-pane
-          v-for="role in roles"
-          :key="role.value"
-          :label="role.label"
-          :name="role.value"
-        />
-      </el-tabs>
-    </section>
-
     <section class="status-section">
-      <el-radio-group v-model="activeStatus" size="large" class="status-group">
+      <el-radio-group v-model="activeStatus" size="large" class="status-group" @change="fetchOrders">
         <el-radio-button
-          v-for="status in currentStatusOptions"
+          v-for="status in statusOptions"
           :key="status.value"
-          :label="status.value"
+          :value="status.value"
         >
           {{ status.label }}
         </el-radio-button>
@@ -28,26 +17,31 @@
     </section>
 
     <section class="order-section">
+      <div v-if="loading" class="loading-state">
+        <el-icon class="is-loading" size="20"><Loading /></el-icon>
+        <span>订单加载中...</span>
+      </div>
+
       <el-empty
-        v-if="currentOrders.length === 0"
+        v-else-if="orders.length === 0"
         description="暂无订单"
         :image-size="90"
       />
 
       <el-collapse v-else v-model="openedOrders" class="order-list">
         <el-collapse-item
-          v-for="order in currentOrders"
-          :key="order.id"
-          :name="order.id"
+          v-for="order in orders"
+          :key="order.orderId"
+          :name="order.orderId"
         >
           <template #title>
             <div class="order-title">
               <div class="order-title-main">
-                <strong>{{ order.title }}</strong>
-                <span>{{ order.createdAt }}</span>
+                <strong>{{ order.shopName }}</strong>
+                <span>{{ formatTime(order.createTime) }}</span>
               </div>
-              <el-tag size="small" :type="order.tagType" effect="plain">
-                {{ order.statusText }}
+              <el-tag size="small" :type="statusTagType(order.status)" effect="plain">
+                {{ statusText(order.status) }}
               </el-tag>
             </div>
           </template>
@@ -55,42 +49,70 @@
           <div class="order-detail">
             <div class="detail-row">
               <span>订单编号</span>
-              <strong>{{ order.orderNo }}</strong>
+              <strong>{{ order.orderId }}</strong>
             </div>
             <div class="detail-row">
-              <span>商家</span>
-              <strong>{{ order.shopName }}</strong>
+              <span>收货人</span>
+              <strong>{{ order.receiverName }}</strong>
             </div>
             <div class="detail-row">
-              <span>用户</span>
-              <strong>{{ order.customerName }}</strong>
-            </div>
-            <div class="detail-row">
-              <span>骑手</span>
-              <strong>{{ order.riderName }}</strong>
+              <span>联系电话</span>
+              <strong>{{ order.receiverPhone }}</strong>
             </div>
             <div class="detail-row">
               <span>配送地址</span>
-              <strong>{{ order.address }}</strong>
+              <strong>{{ order.receiverAddress }}</strong>
             </div>
 
             <div class="goods-list">
               <div
                 v-for="item in order.items"
-                :key="item.name"
+                :key="item.itemId"
                 class="goods-row"
               >
-                <span>{{ item.name }} x{{ item.count }}</span>
-                <strong>&yen;{{ item.price }}</strong>
+                <span>{{ item.name }} x{{ item.quantity }}</span>
+                <strong>&yen;{{ item.amount.toFixed(2) }}</strong>
               </div>
             </div>
 
             <div class="detail-row total-row">
-              <span>合计</span>
-              <strong>&yen;{{ order.amount }}</strong>
+              <span>合计（含配送费 &yen;{{ order.deliveryFee }}）</span>
+              <strong>&yen;{{ order.amount.toFixed(2) }}</strong>
             </div>
 
-            <p class="remark">备注：{{ order.remark }}</p>
+            <p v-if="order.remark" class="remark">备注：{{ order.remark }}</p>
+
+            <!-- 操作按钮 -->
+            <div class="order-actions" v-if="orderActions(order.status).length > 0">
+              <el-button
+                v-for="action in orderActions(order.status)"
+                :key="action.key"
+                :type="action.type"
+                size="small"
+                @click="handleAction(order, action.key)"
+              >
+                {{ action.label }}
+              </el-button>
+            </div>
+
+            <!-- 评价表单 -->
+            <div v-if="reviewOrderId === order.orderId" class="review-form">
+              <el-rate v-model="reviewScore" show-score />
+              <el-input
+                v-model="reviewContent"
+                type="textarea"
+                :rows="2"
+                placeholder="写下你的评价..."
+              />
+              <el-button
+                type="primary"
+                size="small"
+                :loading="reviewSubmitting"
+                @click="submitReview(order.orderId)"
+              >
+                提交评价
+              </el-button>
+            </div>
           </div>
         </el-collapse-item>
       </el-collapse>
@@ -99,276 +121,183 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { onMounted, ref } from 'vue'
+import { ElMessage } from 'element-plus'
+import { Loading } from '@element-plus/icons-vue'
+import { useUserStore } from '@/stores/user'
+import {
+  listOrderApi,
+  payOrderAlipayApi,
+  payOrderWalletApi,
+  merchantAcceptApi,
+  merchantRejectApi,
+  riderAcceptApi,
+  riderArriveApi,
+  createOrderReviewApi,
+  OrderStatusText,
+  type OrderVO,
+} from '@/api/order'
 
-type RoleKey = 'user' | 'merchant' | 'rider'
-type TagType = 'primary' | 'success' | 'warning' | 'info' | 'danger'
+const userStore = useUserStore()
 
-interface RoleTab {
-  label: string
-  value: RoleKey
-}
-
-interface StatusOption {
-  label: string
-  value: string
-}
-
-interface OrderGoods {
-  name: string
-  count: number
-  price: number
-}
-
-interface OrderItem {
-  id: string
-  role: RoleKey
-  status: string
-  statusText: string
-  tagType: TagType
-  orderNo: string
-  title: string
-  createdAt: string
-  shopName: string
-  customerName: string
-  riderName: string
-  address: string
-  amount: number
-  remark: string
-  items: OrderGoods[]
-}
-
-const roles: RoleTab[] = [
-  { label: '用户', value: 'user' },
-  { label: '商家', value: 'merchant' },
-  { label: '骑手', value: 'rider' }
-]
-
-const statusOptions: Record<RoleKey, StatusOption[]> = {
-  user: [
-    { label: '待支付', value: 'pendingPay' },
-    { label: '待评价', value: 'pendingReview' },
-    { label: '已完成', value: 'completed' }
-  ],
-  merchant: [
-    { label: '待接单', value: 'pendingAccept' },
-    { label: '待配送', value: 'pendingDelivery' },
-    { label: '已完成', value: 'completed' }
-  ],
-  rider: [
-    { label: '待抢单', value: 'orderHall' },
-    { label: '待配送', value: 'pendingDelivery' },
-    { label: '已完成', value: 'completed' }
-  ]
-}
-
-const getDefaultStatus = (role: RoleKey) => statusOptions[role][0]?.value ?? ''
-
-const activeRole = ref<RoleKey>('user')
-const activeStatus = ref(getDefaultStatus('user'))
+const activeStatus = ref<string>('all')
+const loading = ref(false)
+const orders = ref<OrderVO[]>([])
 const openedOrders = ref<string[]>([])
 
-const orders = ref<OrderItem[]>([
-  {
-    id: 'u-1001',
-    role: 'user',
-    status: 'pendingPay',
-    statusText: '待支付',
-    tagType: 'warning',
-    orderNo: 'ELM202606150001',
-    title: '万家饺子（软件园店）',
-    createdAt: '今天 12:20',
-    shopName: '万家饺子（软件园店）',
-    customerName: '张同学',
-    riderName: '待分配',
-    address: '天府软件园D区 3栋 1206',
-    amount: 36,
-    remark: '不要香菜，餐具一份',
-    items: [
-      { name: '猪肉白菜水饺', count: 1, price: 22 },
-      { name: '酸梅汤', count: 2, price: 7 }
-    ]
-  },
-  {
-    id: 'u-1002',
-    role: 'user',
-    status: 'pendingReview',
-    statusText: '待评价',
-    tagType: 'primary',
-    orderNo: 'ELM202606140018',
-    title: '小明家常菜',
-    createdAt: '昨天 18:42',
-    shopName: '小明家常菜',
-    customerName: '张同学',
-    riderName: '骑手小陈',
-    address: '天府软件园D区 3栋 1206',
-    amount: 48,
-    remark: '米饭多一点',
-    items: [
-      { name: '鱼香肉丝盖饭', count: 1, price: 26 },
-      { name: '番茄鸡蛋汤', count: 1, price: 12 },
-      { name: '配送费', count: 1, price: 10 }
-    ]
-  },
-  {
-    id: 'u-1003',
-    role: 'user',
-    status: 'completed',
-    statusText: '已完成',
-    tagType: 'success',
-    orderNo: 'ELM202606120026',
-    title: '蜜雪冰城',
-    createdAt: '6月12日 15:08',
-    shopName: '蜜雪冰城',
-    customerName: '张同学',
-    riderName: '骑手王师傅',
-    address: '天府软件园D区 正门',
-    amount: 18,
-    remark: '少冰，正常糖',
-    items: [
-      { name: '柠檬水', count: 2, price: 8 },
-      { name: '打包费', count: 1, price: 2 }
-    ]
-  },
-  {
-    id: 'm-2001',
-    role: 'merchant',
-    status: 'pendingAccept',
-    statusText: '待接单',
-    tagType: 'danger',
-    orderNo: 'ELM202606150021',
-    title: '新订单待确认',
-    createdAt: '今天 12:33',
-    shopName: '万家饺子（软件园店）',
-    customerName: '李女士',
-    riderName: '待分配',
-    address: '天府软件园A区 1栋',
-    amount: 52,
-    remark: '尽快送达',
-    items: [
-      { name: '牛肉蒸饺', count: 2, price: 21 },
-      { name: '紫菜蛋花汤', count: 1, price: 10 }
-    ]
-  },
-  {
-    id: 'm-2002',
-    role: 'merchant',
-    status: 'pendingDelivery',
-    statusText: '待配送',
-    tagType: 'warning',
-    orderNo: 'ELM202606150017',
-    title: '等待骑手取餐',
-    createdAt: '今天 11:55',
-    shopName: '万家饺子（软件园店）',
-    customerName: '陈先生',
-    riderName: '骑手小陈',
-    address: '天府软件园B区 5栋',
-    amount: 29,
-    remark: '打包牢固一点',
-    items: [
-      { name: '三鲜水饺', count: 1, price: 24 },
-      { name: '餐盒费', count: 1, price: 5 }
-    ]
-  },
-  {
-    id: 'm-2003',
-    role: 'merchant',
-    status: 'completed',
-    statusText: '已完成',
-    tagType: 'success',
-    orderNo: 'ELM202606130033',
-    title: '订单已完成',
-    createdAt: '6月13日 13:16',
-    shopName: '万家饺子（软件园店）',
-    customerName: '赵同学',
-    riderName: '骑手小王',
-    address: '天府软件园C区 2栋',
-    amount: 41,
-    remark: '无',
-    items: [
-      { name: '猪肉韭菜水饺', count: 1, price: 25 },
-      { name: '凉拌黄瓜', count: 1, price: 16 }
-    ]
-  },
-  {
-    id: 'r-3001',
-    role: 'rider',
-    status: 'orderHall',
-    statusText: '待抢单',
-    tagType: 'primary',
-    orderNo: 'ELM202606150035',
-    title: '3.2km 配送单',
-    createdAt: '刚刚',
-    shopName: '小明家常菜',
-    customerName: '周女士',
-    riderName: '待抢单',
-    address: '天府软件园E区 7栋',
-    amount: 64,
-    remark: '送达前电话联系',
-    items: [
-      { name: '宫保鸡丁套餐', count: 1, price: 34 },
-      { name: '红烧茄子', count: 1, price: 24 },
-      { name: '配送费', count: 1, price: 6 }
-    ]
-  },
-  {
-    id: 'r-3002',
-    role: 'rider',
-    status: 'pendingDelivery',
-    statusText: '待配送',
-    tagType: 'warning',
-    orderNo: 'ELM202606150029',
-    title: '正在配送中',
-    createdAt: '今天 12:05',
-    shopName: '万家饺子（软件园店）',
-    customerName: '林同学',
-    riderName: '骑手小陈',
-    address: '天府软件园D区 8栋',
-    amount: 33,
-    remark: '放前台即可',
-    items: [
-      { name: '香菇猪肉水饺', count: 1, price: 28 },
-      { name: '配送费', count: 1, price: 5 }
-    ]
-  },
-  {
-    id: 'r-3003',
-    role: 'rider',
-    status: 'completed',
-    statusText: '已完成',
-    tagType: 'success',
-    orderNo: 'ELM202606140041',
-    title: '配送已完成',
-    createdAt: '昨天 19:20',
-    shopName: '蜜雪冰城',
-    customerName: '王同学',
-    riderName: '骑手小陈',
-    address: '天府软件园A区 北门',
-    amount: 22,
-    remark: '无',
-    items: [
-      { name: '满杯百香果', count: 1, price: 12 },
-      { name: '珍珠奶茶', count: 1, price: 10 }
-    ]
+// 评价
+const reviewOrderId = ref('')
+const reviewScore = ref(5)
+const reviewContent = ref('')
+const reviewSubmitting = ref(false)
+
+const statusOptions = [
+  { label: '全部', value: 'all' },
+  { label: '待支付', value: '0' },
+  { label: '待接单', value: '1' },
+  { label: '待配送', value: '2' },
+  { label: '待送达', value: '3' },
+  { label: '待评价', value: '4' },
+  { label: '已完成', value: '5' },
+]
+
+const statusText = (status: number) => OrderStatusText[status] || '未知'
+
+const statusTagType = (status: number): 'warning' | 'primary' | 'success' | 'danger' | 'info' => {
+  const map: Record<number, string> = {
+    0: 'warning',
+    1: 'danger',
+    2: 'warning',
+    3: 'primary',
+    4: 'primary',
+    5: 'success',
+    6: 'info',
+    7: 'info',
   }
-])
+  return (map[status] || 'info') as 'warning' | 'primary' | 'success' | 'danger' | 'info'
+}
 
-const currentStatusOptions = computed(() => statusOptions[activeRole.value])
+interface OrderAction {
+  key: string
+  label: string
+  type: 'primary' | 'success' | 'warning' | 'danger'
+}
 
-const currentOrders = computed(() => {
-  return orders.value.filter((order) => {
-    return order.role === activeRole.value && order.status === activeStatus.value
-  })
-})
+const orderActions = (status: number): OrderAction[] => {
+  const actions: Record<number, OrderAction[]> = {
+    0: [
+      { key: 'pay-alipay', label: '支付宝支付', type: 'primary' },
+      { key: 'pay-wallet', label: '钱包支付', type: 'success' },
+    ],
+    1: [
+      { key: 'merchant-accept', label: '接单', type: 'success' },
+      { key: 'merchant-reject', label: '拒单', type: 'danger' },
+    ],
+    2: [{ key: 'rider-accept', label: '骑手接单', type: 'primary' }],
+    3: [{ key: 'rider-arrive', label: '确认送达', type: 'success' }],
+    4: [{ key: 'review', label: '评价', type: 'primary' }],
+  }
+  return actions[status] || []
+}
 
-watch(activeRole, (role) => {
-  activeStatus.value = getDefaultStatus(role)
-  openedOrders.value = []
-})
+const fetchOrders = async () => {
+  if (!userStore.token) return
 
-watch(activeStatus, () => {
-  openedOrders.value = []
-})
+  loading.value = true
+  try {
+    const params: { status?: number; page?: number; size?: number } = { size: 50 }
+    if (activeStatus.value !== 'all') {
+      params.status = Number(activeStatus.value)
+    }
+    const result = await listOrderApi(params, userStore.token)
+    orders.value = result.records || []
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '订单加载失败')
+  } finally {
+    loading.value = false
+  }
+}
+
+const handleAction = async (order: OrderVO, action: string) => {
+  const token = userStore.token
+  if (!token) {
+    ElMessage.warning('请先登录')
+    return
+  }
+
+  try {
+    switch (action) {
+      case 'pay-alipay': {
+        const result = await payOrderAlipayApi(order.orderId, token)
+        ElMessage.success(`支付订单已创建，请扫码支付：${result.payUrl}`)
+        break
+      }
+      case 'pay-wallet':
+        await payOrderWalletApi(order.orderId, token)
+        ElMessage.success('支付成功')
+        break
+      case 'merchant-accept':
+        await merchantAcceptApi(order.orderId, token)
+        ElMessage.success('已接单')
+        break
+      case 'merchant-reject':
+        await merchantRejectApi(order.orderId, token)
+        ElMessage.success('已拒单')
+        break
+      case 'rider-accept':
+        await riderAcceptApi(order.orderId, token)
+        ElMessage.success('已接单')
+        break
+      case 'rider-arrive':
+        await riderArriveApi(order.orderId, token)
+        ElMessage.success('已确认送达')
+        break
+      case 'review':
+        reviewOrderId.value = order.orderId
+        reviewScore.value = 5
+        reviewContent.value = ''
+        break
+    }
+    fetchOrders()
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '操作失败')
+  }
+}
+
+const submitReview = async (orderId: string) => {
+  if (!userStore.token) return
+  reviewSubmitting.value = true
+  try {
+    await createOrderReviewApi(
+      orderId,
+      { score: reviewScore.value, content: reviewContent.value },
+      userStore.token
+    )
+    ElMessage.success('评价成功')
+    reviewOrderId.value = ''
+    fetchOrders()
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '评价失败')
+  } finally {
+    reviewSubmitting.value = false
+  }
+}
+
+const formatTime = (timeStr: string) => {
+  if (!timeStr) return ''
+  try {
+    const d = new Date(timeStr)
+    const now = new Date()
+    const diff = now.getTime() - d.getTime()
+    if (diff < 86400000) return `今天 ${d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}`
+    if (diff < 172800000) return `昨天 ${d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}`
+    return `${d.getMonth() + 1}月${d.getDate()}日 ${d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}`
+  } catch {
+    return timeStr
+  }
+}
+
+onMounted(fetchOrders)
 </script>
 
 <style scoped>
@@ -394,50 +323,37 @@ watch(activeStatus, () => {
   font-weight: 600;
 }
 
-.role-section {
-  background-color: #ffffff;
-}
-
-.role-tabs {
-  padding: 0 12px;
-}
-
-.role-tabs :deep(.el-tabs__header) {
-  margin: 0;
-}
-
-.role-tabs :deep(.el-tabs__nav-wrap::after) {
-  height: 0;
-}
-
-.role-tabs :deep(.el-tabs__item) {
-  height: 48px;
-  font-size: 15px;
-}
-
 .status-section {
   padding: 12px;
   background-color: #ffffff;
-  border-top: 1px solid #f0f0f0;
 }
 
 .status-group {
   width: 100%;
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0;
+}
+
+.status-group :deep(.el-radio-button) {
+  flex: 1;
+  min-width: 0;
 }
 
 .status-group :deep(.el-radio-button__inner) {
   width: 100%;
-  border-radius: 0;
+  padding: 8px 4px;
+  font-size: 12px;
 }
 
-.status-group :deep(.el-radio-button:first-child .el-radio-button__inner) {
-  border-radius: 6px 0 0 6px;
-}
-
-.status-group :deep(.el-radio-button:last-child .el-radio-button__inner) {
-  border-radius: 0 6px 6px 0;
+.loading-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px;
+  color: #999;
+  gap: 8px;
+  font-size: 14px;
 }
 
 .order-section {
@@ -553,5 +469,19 @@ watch(activeStatus, () => {
   color: #777777;
   font-size: 13px;
   line-height: 1.45;
+}
+
+.order-actions {
+  margin-top: 12px;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.review-form {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 </style>

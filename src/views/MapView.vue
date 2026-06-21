@@ -69,7 +69,7 @@ let mapInstance: any = null
 let drivingInstance: any = null
 
 const amapKey = import.meta.env.VITE_AMAP_KEY
-const amapSecurityJsCode = import.meta.env.VITE_AMAP_SECURITY_JS_CODE
+const amapServiceHost = import.meta.env.VITE_AMAP_SERVICE_HOST || 'https://data.zxylearn.top/_AMapService'
 
 const mapPoints: [MapPoint, MapPoint] = [
   {
@@ -95,8 +95,8 @@ const mapCenter = computed<[number, number]>(() => {
 })
 
 const initMap = async () => {
-  if (!amapKey || !amapSecurityJsCode) {
-    mapMessage.value = '请先在 .env 中配置高德地图 Key 和安全密钥'
+  if (!amapKey) {
+    mapMessage.value = '请先在 .env 中配置高德地图 Key'
     return
   }
 
@@ -108,9 +108,9 @@ const initMap = async () => {
 
   try {
     ;(window as Window & {
-      _AMapSecurityConfig?: { securityJsCode: string }
+      _AMapSecurityConfig?: { serviceHost: string }
     })._AMapSecurityConfig = {
-      securityJsCode: amapSecurityJsCode
+      serviceHost: amapServiceHost
     }
 
     const AMap = await AMapLoader.load({
@@ -133,7 +133,7 @@ const initMap = async () => {
     mapMessage.value = ''
   } catch (error) {
     console.error(error)
-    mapMessage.value = '地图加载失败，请检查高德地图 Key 和安全密钥'
+    mapMessage.value = '地图加载失败，请检查高德地图 Key 和代理服务'
   }
 }
 

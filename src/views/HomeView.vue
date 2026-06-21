@@ -16,15 +16,15 @@
         </div>
 
         <div class="search-box">
-          <el-input 
-            v-model="searchInput" 
-            class="search-input" 
-            @keyup.enter="searchKey" 
+          <el-input
+            v-model="searchInput"
+            class="search-input"
+            @keyup.enter="searchKey"
             @focus="handleSearchFocus"
-            @blur="handleSearchBlur" 
-            :prefix-icon="Search" 
-            placeholder="搜索饿了么商家、商品名称" 
-            clearable 
+            @blur="handleSearchBlur"
+            :prefix-icon="Search"
+            placeholder="搜索饿了么商家、商品名称"
+            clearable
           />
 
           <transition name="el-fade-in-linear">
@@ -85,8 +85,8 @@
         </span>
         <template #dropdown>
           <el-dropdown-menu>
-            <el-dropdown-item command="review">好评优先</el-dropdown-item>
-            <el-dropdown-item command="price">距离最近</el-dropdown-item>
+            <el-dropdown-item command="rating">好评优先</el-dropdown-item>
+            <el-dropdown-item command="distance">距离最近</el-dropdown-item>
           </el-dropdown-menu>
         </template>
       </el-dropdown>
@@ -98,13 +98,19 @@
       </span>
     </div>
 
-    <ul class="merchants">
-      <li v-for="merchant in shops" :key="merchant.id" @click="clickMerchant(merchant.id)">
-        <el-image :src="merchant.shop_cover" class="merchants-img" fit="cover" lazy />
+    <!-- 加载状态 -->
+    <div v-if="shopLoading" class="loading-state">
+      <el-icon class="is-loading" size="24"><Loading /></el-icon>
+      <span>商家加载中...</span>
+    </div>
+
+    <ul v-else class="merchants">
+      <li v-for="shop in shops" :key="shop.shopId" @click="clickMerchant(shop.shopId)">
+        <el-image :src="shop.avatar" class="merchants-img" fit="cover" lazy />
 
         <div class="merchants-info">
           <div class="merchants-info-h">
-            <h3>{{ merchant.shop_name }}</h3>
+            <h3>{{ shop.name }}</h3>
             <el-icon color="#999">
               <MoreFilled />
             </el-icon>
@@ -112,38 +118,38 @@
 
           <div class="merchants-info-star">
             <div class="star-wrapper">
-              <el-rate 
-                v-model="merchant.shop_review" 
-                disabled 
-                show-score 
-                text-color="#ff9900" 
+              <el-rate
+                v-model="shop.reviewScore"
+                disabled
+                show-score
+                text-color="#ff9900"
                 score-template="{value}"
-                size="small" 
+                size="small"
               />
-              <span class="sales">销售{{ merchant.shop_volume }}单</span>
+              <span class="sales">月售{{ formatSales(shop.salesCount) }}</span>
             </div>
             <el-tag effect="dark" type="primary" size="small" class="delivery-tag">蜂鸟专送</el-tag>
           </div>
 
           <div class="merchants-info-delivery">
-            <span>&#165;{{ merchant.start_price }}起送 | &#165;{{ merchant.delivery_fee }}配送</span>
+            <span>&#165;{{ shop.deliveryFee }} 配送</span>
             <span>
-              {{ merchant.distance > 1000 ? (merchant.distance / 1000).toFixed(1) + 'km' : merchant.distance + 'm' }}
-              | {{ merchant.duration }}分钟
+              {{ shop.distanceText }}
+              | {{ shop.durationText }}
             </span>
           </div>
 
-          <div class="merchants-info-explain" v-if="merchant.shop_description">
-            <el-tag type="info" size="small" effect="plain">{{ merchant.shop_description }}</el-tag>
+          <div class="merchants-info-explain" v-if="shop.description">
+            <el-tag type="info" size="small" effect="plain">{{ shop.description }}</el-tag>
           </div>
 
-          <div class="merchants-info-promotion" v-for="(promo, pIndex) in merchant.promotions" :key="pIndex">
+          <div class="merchants-info-promotion" v-for="(promo, pIndex) in shop.promotions" :key="pIndex">
             <div class="promo-left">
               <el-tag :color="promo.color" effect="dark" size="small" class="promo-icon">{{ promo.icon }}</el-tag>
               <span class="promo-text">{{ promo.text }}</span>
             </div>
-            <div class="promo-right" v-if="pIndex === 0 && merchant.promotions.length > 1">
-              <span>{{ merchant.promotions.length }}个活动</span>
+            <div class="promo-right" v-if="pIndex === 0 && shop.promotions.length > 1">
+              <span>{{ shop.promotions.length }}个活动</span>
               <el-icon><CaretBottom /></el-icon>
             </div>
           </div>
@@ -154,21 +160,20 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive } from 'vue'
+import { onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { 
+import { ElMessage } from 'element-plus'
+import {
   Loading, Location, CaretBottom, Search, Filter, MoreFilled,
   HomeFilled, Compass, Document, User
 } from '@element-plus/icons-vue'
+import { listHotSearchApi, searchShopApi, type ShopVO } from '@/api/shop'
 
 const router = useRouter()
 
-// Header logic
+// 定位
 const isLoading = ref(false)
-const locationText = ref('南京市天府软件园')
-const searchInput = ref('')
-const isSearchFocused = ref(false)
-const hotSearchs = ref(['螺蛳粉', '烧烤', '蜜雪冰城', '汉堡', '麻辣烫', '奶茶'])
+const locationText = ref('成都市天府软件园')
 
 const getLocation = () => {
   isLoading.value = true
@@ -178,15 +183,25 @@ const getLocation = () => {
   }, 1000)
 }
 
+// 搜索
+const searchInput = ref('')
+const isSearchFocused = ref(false)
+const hotSearchs = ref<string[]>([])
+
 const handleSearchFocus = () => { isSearchFocused.value = true }
 const handleSearchBlur = () => { setTimeout(() => isSearchFocused.value = false, 200) }
-const searchKey = () => { console.log('Search for:', searchInput.value) }
-const clickHotSearch = (item: string) => { 
+const searchKey = () => {
+  searchQuery.value = searchInput.value
+  fetchShops()
+}
+const clickHotSearch = (item: string) => {
   searchInput.value = item
   isSearchFocused.value = false
+  searchQuery.value = item
+  fetchShops()
 }
 
-// Data
+// 分类
 const foodTypes = reactive([
   { name: '美食', img: '/ele-assets/dcfl01.png' },
   { name: '早餐', img: '/ele-assets/dcfl02.png' },
@@ -200,47 +215,82 @@ const foodTypes = reactive([
   { name: '炸鸡炸串', img: '/ele-assets/dcfl10.png' },
 ])
 
+// 排序和筛选
+const sortType = ref<string>('distance')
+const searchQuery = ref('')
+
 const handleSort = (type: string) => {
-  console.log('Sort by:', type)
+  sortType.value = type
+  fetchShops()
 }
 
-const clickMerchant = (id: number) => {
+// 商家列表
+interface ShopDisplay extends ShopVO {
+  distanceText: string
+  durationText: string
+  promotions: { color: string; icon: string; text: string }[]
+}
+
+const shops = ref<ShopDisplay[]>([])
+const shopLoading = ref(false)
+
+const formatSales = (count: number) => {
+  if (count >= 1000) return `${(count / 1000).toFixed(0)}k`
+  return String(count)
+}
+
+const buildShopDisplay = (shop: ShopVO): ShopDisplay => {
+  // 估算距离和时间（后续可从定位服务获取精确值）
+  const dist = 0
+  const distText = dist >= 1000 ? `${(dist / 1000).toFixed(1)}km` : `${dist}m`
+  const duration = 20 + Math.floor(Math.random() * 20)
+
+  return {
+    ...shop,
+    distanceText: distText,
+    durationText: `${duration}分钟`,
+    promotions: shop.description
+      ? [{ color: '#f07373', icon: '减', text: shop.description }]
+      : [],
+  }
+}
+
+const fetchShops = async () => {
+  shopLoading.value = true
+  try {
+    const result = await searchShopApi({
+      query: searchQuery.value || undefined,
+      sort: sortType.value as 'distance' | 'rating' | 'sales',
+      size: 20,
+    })
+    shops.value = (result.records || []).map(buildShopDisplay)
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '商家加载失败')
+  } finally {
+    shopLoading.value = false
+  }
+}
+
+const fetchHotSearch = async () => {
+  try {
+    const keywords = await listHotSearchApi()
+    if (keywords && keywords.length > 0) {
+      hotSearchs.value = keywords
+    }
+  } catch {
+    // 降级使用默认关键词
+    hotSearchs.value = ['螺蛳粉', '烧烤', '蜜雪冰城', '汉堡', '麻辣烫', '奶茶']
+  }
+}
+
+const clickMerchant = (id: string) => {
   router.push(`/shop/${id}`)
 }
 
-const shops = reactive([
-  {
-    id: 1,
-    shop_name: '万家饺子（软件园店）',
-    shop_cover: 'https://zxydata.oss-cn-chengdu.aliyuncs.com/ele/sj01.png',
-    shop_review: 4.9,
-    shop_volume: 345,
-    start_price: 15,
-    delivery_fee: 0,
-    distance: 1200,
-    duration: 30,
-    shop_description: '味道好，分量足',
-    promotions: [
-      { color: '#f07373', icon: '减', text: '满20减5，满40减12' },
-      { color: '#70bc46', icon: '首', text: '新用户立减15元' }
-    ]
-  },
-  {
-    id: 2,
-    shop_name: '小明家常菜',
-    shop_cover: 'https://zxydata.oss-cn-chengdu.aliyuncs.com/ele/sj02.png',
-    shop_review: 4.6,
-    shop_volume: 120,
-    start_price: 20,
-    delivery_fee: 2,
-    distance: 800,
-    duration: 15,
-    shop_description: '回头客多，值得信赖',
-    promotions: [
-      { color: '#f07373', icon: '减', text: '满30减10' }
-    ]
-  }
-])
+onMounted(() => {
+  fetchHotSearch()
+  fetchShops()
+})
 </script>
 
 <style scoped>
@@ -495,6 +545,17 @@ const shops = reactive([
   align-items: center;
   gap: 3px;
   cursor: pointer;
+}
+
+.loading-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px;
+  color: #999;
+  gap: 10px;
+  font-size: 14px;
 }
 
 .merchants {

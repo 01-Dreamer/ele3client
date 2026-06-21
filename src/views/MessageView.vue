@@ -4,107 +4,190 @@
       <h2>消息</h2>
     </header>
 
-    <ul class="conversation-list">
+    <!-- Tab 切换 -->
+    <el-tabs v-model="activeTab" stretch class="msg-tabs">
+      <el-tab-pane label="会话" name="session" />
+      <el-tab-pane label="通知" name="notice" />
+    </el-tabs>
+
+    <!-- 会话列表 -->
+    <ul v-if="activeTab === 'session'" class="conversation-list">
+      <div v-if="sessionLoading" class="loading-state">
+        <el-icon class="is-loading"><Loading /></el-icon>
+      </div>
+
       <li
-        v-for="conversation in conversations"
-        :key="conversation.id"
+        v-for="conv in sessions"
+        :key="conv.id"
         class="conversation-item"
-        @click="openChat(conversation)"
+        @click="openChat(conv)"
       >
         <el-badge
           class="avatar-badge"
-          :value="conversation.unreadCount"
-          :hidden="!conversation.unreadCount"
+          :value="sessionUnread(conv)"
+          :hidden="sessionUnread(conv) === 0"
         >
           <el-avatar
             class="avatar"
             shape="square"
             :size="48"
-            :src="conversation.avatarUrl"
+            :src="getSessionAvatar(conv)"
           />
         </el-badge>
 
         <div class="conversation-main">
           <div class="conversation-top">
-            <h3>{{ conversation.nickname }}</h3>
-            <span class="message-time">{{ conversation.messageTime }}</span>
+            <h3>{{ getSessionName(conv) }}</h3>
+            <span class="message-time">{{ formatTime(conv.lastMessageTime) }}</span>
           </div>
-
           <div class="conversation-bottom">
-            <p>{{ conversation.latestMessage }}</p>
+            <p>{{ conv.lastMessageContent }}</p>
           </div>
         </div>
       </li>
+
+      <el-empty v-if="!sessionLoading && sessions.length === 0" description="暂无会话" :image-size="60" />
+    </ul>
+
+    <!-- 通知列表 -->
+    <ul v-if="activeTab === 'notice'" class="conversation-list">
+      <div v-if="noticeLoading" class="loading-state">
+        <el-icon class="is-loading"><Loading /></el-icon>
+      </div>
+
+      <li
+        v-for="notice in notices"
+        :key="notice.id"
+        class="conversation-item"
+        @click="readNotice(notice.id)"
+      >
+        <el-badge
+          class="avatar-badge"
+          :value="notice.isRead ? 0 : 1"
+          :hidden="notice.isRead === 1"
+        >
+          <el-avatar
+            class="avatar notice-avatar"
+            shape="square"
+            :size="48"
+            :icon="Bell"
+          />
+        </el-badge>
+
+        <div class="conversation-main">
+          <div class="conversation-top">
+            <h3>{{ notice.title }}</h3>
+            <span class="message-time">{{ formatTime(notice.createTime) }}</span>
+          </div>
+          <div class="conversation-bottom">
+            <p>{{ notice.content }}</p>
+          </div>
+        </div>
+      </li>
+
+      <el-empty v-if="!noticeLoading && notices.length === 0" description="暂无通知" :image-size="60" />
     </ul>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-
-interface Conversation {
-  id: number
-  avatarUrl: string
-  nickname: string
-  messageTime: string
-  latestMessage: string
-  unreadCount: number
-}
-
-const conversations = ref<Conversation[]>([
-  {
-    id: 1,
-    avatarUrl: 'https://zxydata.oss-cn-chengdu.aliyuncs.com/ele/sj01.png',
-    nickname: '文件传输助手',
-    messageTime: '昨天 15:25',
-    latestMessage: 'https://synxlab.feishu.cn/share/base/form/shrcn...',
-    unreadCount: 0
-  },
-  {
-    id: 2,
-    avatarUrl: 'https://zxydata.oss-cn-chengdu.aliyuncs.com/ele/sj02.png',
-    nickname: '饿了么客服',
-    messageTime: '10:48',
-    latestMessage: '您的订单已送达，欢迎对本次服务进行评价。',
-    unreadCount: 2
-  },
-  {
-    id: 3,
-    avatarUrl: 'https://zxydata.oss-cn-chengdu.aliyuncs.com/ele/dcfl05.png',
-    nickname: '优惠活动通知',
-    messageTime: '09:12',
-    latestMessage: '今日有满减红包待领取，附近好店正在热卖。',
-    unreadCount: 1
-  },
-  {
-    id: 4,
-    avatarUrl: 'https://zxydata.oss-cn-chengdu.aliyuncs.com/ele/dcfl03.png',
-    nickname: '骑手小陈',
-    messageTime: '周日',
-    latestMessage: '我已经到楼下了，方便下来取一下餐吗？',
-    unreadCount: 0
-  },
-  {
-    id: 5,
-    avatarUrl: 'https://zxydata.oss-cn-chengdu.aliyuncs.com/ele/sj01.png',
-    nickname: '万家饺子（软件园店）',
-    messageTime: '周六',
-    latestMessage: '新品虾仁水饺上线，老顾客下单享折扣。',
-    unreadCount: 0
-  }
-])
+import { ElMessage } from 'element-plus'
+import { Bell, Loading } from '@element-plus/icons-vue'
+import { useUserStore } from '@/stores/user'
+import { listSessionApi, listNoticeApi, readNoticeApi, clearUnreadApi, type MessageSessionVO, type MessageNoticeVO } from '@/api/message'
 
 const router = useRouter()
+const userStore = useUserStore()
 
-const openChat = (conversation: Conversation) => {
+const activeTab = ref('session')
+const sessions = ref<MessageSessionVO[]>([])
+const notices = ref<MessageNoticeVO[]>([])
+const sessionLoading = ref(false)
+const noticeLoading = ref(false)
+
+const sessionUnread = (s: MessageSessionVO) => {
+  const myId = userStore.userId
+  if (!myId) return 0
+  return myId === s.smallerUserId ? s.smallerUserUnreadCount : s.largerUserUnreadCount
+}
+
+const getSessionName = (s: MessageSessionVO) => {
+  const myId = userStore.userId
+  if (!myId) return '对方'
+  return myId === s.smallerUserId ? s.largerUserId : s.smallerUserId
+}
+
+const getSessionAvatar = (_s: MessageSessionVO) => '/default-avatar.svg'
+
+const fetchSessions = async () => {
+  if (!userStore.token) return
+  sessionLoading.value = true
+  try {
+    const result = await listSessionApi(userStore.token)
+    sessions.value = result.records || []
+  } catch {
+    // 静默处理
+  } finally {
+    sessionLoading.value = false
+  }
+}
+
+const fetchNotices = async () => {
+  if (!userStore.token) return
+  noticeLoading.value = true
+  try {
+    const result = await listNoticeApi(userStore.token)
+    notices.value = result.records || []
+  } catch {
+    // 静默处理
+  } finally {
+    noticeLoading.value = false
+  }
+}
+
+const openChat = (s: MessageSessionVO) => {
+  const otherId = getSessionName(s)
   router.push({
     path: '/chat',
     query: {
-      nickname: conversation.nickname
-    }
+      nickname: otherId,
+      userId: otherId,
+    },
   })
 }
+
+const readNotice = async (noticeId: string) => {
+  if (!userStore.token) return
+  try {
+    await readNoticeApi(noticeId, userStore.token)
+    // 更新本地状态
+    const n = notices.value.find(item => item.id === noticeId)
+    if (n) n.isRead = 1
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '操作失败')
+  }
+}
+
+const formatTime = (timeStr: string) => {
+  if (!timeStr) return ''
+  try {
+    const d = new Date(timeStr)
+    const now = new Date()
+    const diff = now.getTime() - d.getTime()
+    if (diff < 86400000) return d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+    if (diff < 172800000) return '昨天'
+    return `${d.getMonth() + 1}月${d.getDate()}日`
+  } catch {
+    return timeStr
+  }
+}
+
+onMounted(() => {
+  fetchSessions()
+  fetchNotices()
+})
 </script>
 
 <style scoped>
@@ -129,11 +212,30 @@ const openChat = (conversation: Conversation) => {
   color: #ffffff;
 }
 
+.msg-tabs {
+  background-color: #ffffff;
+}
+
+.msg-tabs :deep(.el-tabs__header) {
+  margin: 0;
+}
+
+.msg-tabs :deep(.el-tabs__nav-wrap::after) {
+  height: 0;
+}
+
 .conversation-list {
   list-style: none;
   margin: 0;
   padding: 0;
   background-color: #ffffff;
+}
+
+.loading-state {
+  display: flex;
+  justify-content: center;
+  padding: 30px;
+  color: #999;
 }
 
 .conversation-item {
@@ -166,6 +268,11 @@ const openChat = (conversation: Conversation) => {
   border-radius: 6px;
   background-color: #f2f2f2;
   overflow: hidden;
+}
+
+.notice-avatar {
+  background-color: #e6f7ff;
+  color: #0085ff;
 }
 
 .conversation-main {
@@ -218,5 +325,4 @@ const openChat = (conversation: Conversation) => {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-
 </style>
