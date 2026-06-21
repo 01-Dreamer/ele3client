@@ -13,10 +13,21 @@ export interface LoginVO {
   userInfo: UserInfo
 }
 
+export type YnuQrCodeVO = Record<string, unknown>
+export type YnuQrCodeCheckVO = Record<string, unknown>
+
+export interface ThirdAccountVO {
+  id: string
+  userId: string
+  provider: string
+  openId: string
+  createTime: string
+}
+
 export interface EmailCaptchaSendRequest {
   email: string
   captchaId: string
-  captchaData: Record<string, unknown>
+  captchaData: unknown
 }
 
 export interface EmailCaptchaSendVO {
@@ -39,26 +50,56 @@ export interface RegisterVO {
 export const loginApi = (payload: LoginRequest) => {
   return apiRequest<LoginVO>('/api/auth/public/login', {
     method: 'POST',
-    body: JSON.stringify({
+    body: {
       email: payload.email,
       password: payload.password,
       captchaId: payload.captchaId || '',
       captchaCode: payload.captchaCode || ''
-    })
+    }
   })
+}
+
+export const logoutApi = (token: string) => {
+  return apiRequest<null>('/api/auth/logout', {
+    method: 'POST',
+    body: { token },
+    token
+  })
+}
+
+export const getPublicYnuQrCodeApi = () => {
+  return apiRequest<YnuQrCodeVO>('/api/auth/public/ynu-oauth/get-qrcode')
+}
+
+export const checkPublicYnuQrCodeApi = (uuid: string) => {
+  return apiRequest<YnuQrCodeCheckVO>(`/api/auth/public/ynu-oauth/check-qrcode?uuid=${encodeURIComponent(uuid)}`)
+}
+
+export const getYnuBindQrCodeApi = (token: string) => {
+  return apiRequest<YnuQrCodeVO>('/api/auth/ynu-oauth/get-qrcode', { token })
+}
+
+export const checkYnuBindQrCodeApi = (uuid: string, token: string) => {
+  return apiRequest<YnuQrCodeCheckVO>(`/api/auth/ynu-oauth/check-qrcode?uuid=${encodeURIComponent(uuid)}`, {
+    token
+  })
+}
+
+export const listThirdAccountBindingApi = (token: string) => {
+  return apiRequest<ThirdAccountVO[]>('/api/auth/binding', { token })
 }
 
 export const sendRegisterEmailCaptchaApi = (payload: EmailCaptchaSendRequest) => {
   return apiRequest<EmailCaptchaSendVO>('/api/auth/public/register/email-captcha', {
     method: 'POST',
-    body: JSON.stringify(payload)
+    body: payload
   })
 }
 
 export const registerApi = (payload: RegisterRequest) => {
   return apiRequest<RegisterVO>('/api/auth/public/register', {
     method: 'POST',
-    body: JSON.stringify(payload)
+    body: payload
   })
 }
 
@@ -73,14 +114,14 @@ export interface ForgotPasswordResetRequest {
 export const sendForgotPasswordEmailCaptchaApi = (payload: EmailCaptchaSendRequest) => {
   return apiRequest<EmailCaptchaSendVO>('/api/auth/public/forgot-password/email-captcha', {
     method: 'POST',
-    body: JSON.stringify(payload)
+    body: payload
   })
 }
 
 export const forgotPasswordResetApi = (payload: ForgotPasswordResetRequest) => {
   return apiRequest<null>('/api/auth/public/forgot-password', {
     method: 'PUT',
-    body: JSON.stringify(payload)
+    body: payload
   })
 }
 
@@ -88,14 +129,13 @@ export const forgotPasswordResetApi = (payload: ForgotPasswordResetRequest) => {
 
 export interface ChangePasswordRequest {
   oldPassword: string
-  emailCaptcha: string
   newPassword: string
 }
 
 export const sendChangePasswordEmailCaptchaApi = (payload: EmailCaptchaSendRequest, token: string) => {
   return apiRequest<EmailCaptchaSendVO>('/api/auth/change-password/email-captcha', {
     method: 'POST',
-    body: JSON.stringify(payload),
+    body: payload,
     token
   })
 }
@@ -103,7 +143,7 @@ export const sendChangePasswordEmailCaptchaApi = (payload: EmailCaptchaSendReque
 export const changePasswordApi = (payload: ChangePasswordRequest, token: string) => {
   return apiRequest<null>('/api/auth/change-password', {
     method: 'PUT',
-    body: JSON.stringify(payload),
+    body: payload,
     token
   })
 }

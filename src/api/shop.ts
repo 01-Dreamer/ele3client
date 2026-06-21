@@ -30,6 +30,7 @@ export interface ShopItemVO {
   description: string
   price: number
   status: number
+  sort: number
   createTime: string
   updateTime: string
 }
@@ -58,6 +59,13 @@ export interface CursorPageVO<T> {
   records: T[]
   nextCursor: string
   hasMore: boolean
+}
+
+export interface PageVO<T> {
+  items: T[]
+  total: number
+  page: number
+  size: number
 }
 
 export interface ShopSearchParams {
@@ -167,11 +175,20 @@ export const suggestSearchApi = (query: string) => {
   return apiRequest<string[]>(`/api/shop/suggest-search?query=${encodeURIComponent(query)}`)
 }
 
+/** 获取自己的店铺列表（偏移分页） */
+export const listOwnShopsApi = (page: number, size: number) => {
+  const query = new URLSearchParams()
+  if (page) query.set('page', String(page))
+  if (size) query.set('size', String(size))
+  const qs = query.toString()
+  return apiRequest<PageVO<ShopVO>>(`/api/shop/list-own-shop${qs ? `?${qs}` : ''}`)
+}
+
 /** 回复店铺评价 */
 export const replyReviewApi = (payload: ShopReviewReplyRequest, token?: string) => {
   return apiRequest<null>('/api/shop/reply-review', {
     method: 'POST',
-    body: JSON.stringify(payload),
+    body: payload,
     token,
   })
 }
@@ -180,7 +197,7 @@ export const replyReviewApi = (payload: ShopReviewReplyRequest, token?: string) 
 export const createShopApi = (payload: ShopCreateRequest, token: string) => {
   return apiRequest<ShopVO>('/api/shop/create-shop', {
     method: 'POST',
-    body: JSON.stringify(payload),
+    body: payload,
     token,
   })
 }
@@ -189,7 +206,7 @@ export const createShopApi = (payload: ShopCreateRequest, token: string) => {
 export const modifyShopApi = (shopId: string, payload: ShopUpdateRequest, token: string) => {
   return apiRequest<ShopVO>(`/api/shop/modify-shop/${shopId}`, {
     method: 'PUT',
-    body: JSON.stringify(payload),
+    body: payload,
     token,
   })
 }
@@ -198,32 +215,44 @@ export const modifyShopApi = (shopId: string, payload: ShopUpdateRequest, token:
 export const addShopItemApi = (shopId: string, payload: ShopItemCreateRequest, token: string) => {
   return apiRequest<ShopItemVO>(`/api/shop/add-item/${shopId}`, {
     method: 'POST',
-    body: JSON.stringify(payload),
+    body: payload,
     token,
   })
 }
 
 /** 删除商品 */
-export const deleteShopItemApi = (shopId: string, itemId: string, token: string) => {
-  return apiRequest<null>(`/api/shop/delete-item/${shopId}/${itemId}`, {
+export const deleteShopItemApi = (itemId: string, token: string) => {
+  return apiRequest<null>(`/api/shop/delete-item/${itemId}`, {
     method: 'DELETE',
     token,
   })
 }
 
 /** 修改商品 */
-export const modifyShopItemApi = (shopId: string, itemId: string, payload: ShopItemUpdateRequest, token: string) => {
-  return apiRequest<ShopItemVO>(`/api/shop/modify-item/${shopId}/${itemId}`, {
+export const modifyShopItemApi = (itemId: string, payload: ShopItemUpdateRequest, token: string) => {
+  return apiRequest<ShopItemVO>(`/api/shop/modify-item/${itemId}`, {
     method: 'PUT',
-    body: JSON.stringify(payload),
+    body: payload,
     token,
   })
 }
 
 /** 删除店铺 */
-export const deleteShopApi = (shopId: string, token: string) => {
+export const deleteShopApi = (shopId: string) => {
   return apiRequest<null>(`/api/shop/delete-shop/${shopId}`, {
     method: 'DELETE',
-    token,
+  })
+}
+
+/** 调换两个商品顺序 */
+export interface ShopItemSwapRequest {
+  itemIdA: string
+  itemIdB: string
+}
+
+export const swapShopItemsApi = (payload: ShopItemSwapRequest) => {
+  return apiRequest<null>('/api/shop/swap-items', {
+    method: 'PUT',
+    body: payload,
   })
 }

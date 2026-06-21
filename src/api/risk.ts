@@ -44,13 +44,15 @@ export interface SliderCaptchaTrack {
 
 export const getImageCaptchaApi = () => {
   return apiRequest<TextCaptchaVO>('/api/risk/public/captcha/image', {
-    method: 'POST'
+    method: 'POST',
+    skipRiskChallenge: true,
   })
 }
 
 export const getSliderCaptchaApi = () => {
   return apiRequest<SliderCaptchaVO>('/api/risk/public/captcha/slider', {
-    method: 'POST'
+    method: 'POST',
+    skipRiskChallenge: true,
   })
 }
 
@@ -65,6 +67,7 @@ export interface RiskClearBySliderRequest {
 export const clearRiskBySliderApi = (payload: RiskClearBySliderRequest) => {
   return apiRequest<null>('/api/risk/public/captcha/clear-risk-by-slider', {
     method: 'POST',
-    body: JSON.stringify(payload),
+    body: payload,
+    skipRiskChallenge: true,
   })
 }

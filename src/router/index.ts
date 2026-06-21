@@ -6,6 +6,7 @@ import LocationView from '../views/LocationView.vue'
 import LoginView from '../views/LoginView.vue'
 import MapView from '../views/MapView.vue'
 import MessageView from '../views/MessageView.vue'
+import MyShopsView from '../views/MyShopsView.vue'
 import NotFoundView from '../views/NotFoundView.vue'
 import OrderView from '../views/OrderView.vue'
 import ProfileView from '../views/ProfileView.vue'
@@ -51,6 +52,11 @@ const router = createRouter({
       path: '/map',
       name: 'map',
       component: MapView
+    },
+    {
+      path: '/my-shops',
+      name: 'my-shops',
+      component: MyShopsView
     },
     {
       path: '/message',

@@ -125,6 +125,7 @@ import { onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Loading } from '@element-plus/icons-vue'
 import { useUserStore } from '@/stores/user'
+import { showErrorMessage } from '@/api/http'
 import {
   listOrderApi,
   payOrderAlipayApi,
@@ -212,7 +213,7 @@ const fetchOrders = async () => {
     const result = await listOrderApi(params, userStore.token)
     orders.value = result.records || []
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : '订单加载失败')
+    showErrorMessage(error)
   } finally {
     loading.value = false
   }
@@ -260,7 +261,7 @@ const handleAction = async (order: OrderVO, action: string) => {
     }
     fetchOrders()
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : '操作失败')
+    showErrorMessage(error)
   }
 }
 
@@ -277,7 +278,7 @@ const submitReview = async (orderId: string) => {
     reviewOrderId.value = ''
     fetchOrders()
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : '评价失败')
+    showErrorMessage(error)
   } finally {
     reviewSubmitting.value = false
   }

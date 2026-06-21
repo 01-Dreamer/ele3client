@@ -4,6 +4,8 @@
       <RouterView />
     </div>
 
+    <GlobalRiskChallenge />
+
     <!-- AI Chat Window -->
     <transition name="el-zoom-in-bottom">
       <div 
@@ -95,6 +97,7 @@
 import { ref, nextTick } from 'vue'
 import { RouterView, useRouter, useRoute } from 'vue-router'
 import { HomeFilled, Message, Document, User, Cpu, Position } from '@element-plus/icons-vue'
+import GlobalRiskChallenge from '@/components/GlobalRiskChallenge.vue'
 
 const router = useRouter()
 const route = useRoute()

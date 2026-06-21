@@ -88,7 +88,8 @@ import { ElMessage } from 'element-plus'
 import { Key, Lock, Message } from '@element-plus/icons-vue'
 import SliderCaptcha from '@/components/SliderCaptcha.vue'
 import { forgotPasswordResetApi, sendForgotPasswordEmailCaptchaApi } from '@/api/auth'
-import type { SliderCaptchaVO } from '@/api/risk'
+import { showErrorMessage } from '@/api/http'
+import type { SliderCaptchaTrack } from '@/api/risk'
 
 const router = useRouter()
 const email = ref('')
@@ -126,7 +127,7 @@ const handleReset = async () => {
     router.push('/login')
   } catch (error) {
     loading.value = false
-    ElMessage.error(error instanceof Error ? error.message : '密码重置失败')
+    showErrorMessage(error)
   }
 }
 
@@ -139,7 +140,7 @@ const sendCode = () => {
   sliderVisible.value = true
 }
 
-const onSliderSuccess = async (result: { captchaId: string; captchaData: SliderCaptchaVO }) => {
+const onSliderSuccess = async (result: { captchaId: string; captchaData: SliderCaptchaTrack }) => {
   sliderVisible.value = false
   codeLoading.value = true
 
@@ -155,7 +156,7 @@ const onSliderSuccess = async (result: { captchaId: string; captchaData: SliderC
     startCountdown(60)
   } catch (error) {
     codeLoading.value = false
-    ElMessage.error(error instanceof Error ? error.message : '验证码发送失败')
+    showErrorMessage(error)
   }
 }
 

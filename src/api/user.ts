@@ -17,7 +17,7 @@ export interface UserUpdateRequest {
 export const updateUserProfileApi = (payload: UserUpdateRequest, token: string) => {
   return apiRequest<UserProfileVO>('/api/user/profile', {
     method: 'PUT',
-    body: JSON.stringify(payload),
+    body: payload,
     token,
   })
 }
@@ -58,7 +58,7 @@ export interface UserLocationVO {
 export const createUserLocationApi = (payload: UserLocationCreateRequest, token: string) => {
   return apiRequest<UserLocationVO>('/api/user/location', {
     method: 'POST',
-    body: JSON.stringify(payload),
+    body: payload,
     token,
   })
 }

@@ -107,7 +107,7 @@ export const listOrderApi = (params: { status?: number; page?: number; size?: nu
 export const createOrderApi = (payload: OrderCreateRequest, token: string) => {
   return apiRequest<OrderVO>('/api/order/create-order', {
     method: 'POST',
-    body: JSON.stringify(payload),
+    body: payload,
     token,
   })
 }
@@ -164,7 +164,7 @@ export const riderArriveApi = (orderId: string, token: string) => {
 export const createOrderReviewApi = (orderId: string, payload: OrderReviewRequest, token: string) => {
   return apiRequest<null>(`/api/order/create-review/${orderId}`, {
     method: 'POST',
-    body: JSON.stringify(payload),
+    body: payload,
     token,
   })
 }

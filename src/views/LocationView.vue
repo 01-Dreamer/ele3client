@@ -104,6 +104,7 @@ import { ElMessage } from 'element-plus'
 import { LocationFilled, MapLocation, Search, Loading } from '@element-plus/icons-vue'
 import { useUserStore } from '@/stores/user'
 import { useLocationStore } from '@/stores/location'
+import { showErrorMessage } from '@/api/http'
 import { createUserLocationApi, deleteUserLocationApi, type UserLocationVO } from '@/api/user'
 import { uploadCoordinateApi } from '@/api/location'
 
@@ -169,7 +170,7 @@ const addAddress = async () => {
     ElMessage.success('地址已保存')
     showAddDialog.value = false
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : '保存失败')
+    showErrorMessage(error)
   } finally {
     addrSubmitting.value = false
   }
@@ -186,7 +187,7 @@ const deleteAddress = async (locationId: string) => {
     saveAddresses()
     ElMessage.success('已删除')
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : '删除失败')
+    showErrorMessage(error)
   }
 }
 
@@ -196,17 +197,25 @@ const uploadCoordinate = async () => {
     return
   }
   try {
-    const coord = await uploadCoordinateApi(
-      {
-        longitude: 104.066801,
-        latitude: 30.572269,
-      },
-      userStore.token
-    )
+    let currentCoordinate = locationStore.currentCoordinate
+
+    if (!currentCoordinate) {
+      currentCoordinate = await locationStore.refreshLocationNow()
+    }
+
+    if (!currentCoordinate) {
+      ElMessage.warning(locationStore.lastError || '暂未获取到当前位置')
+      return
+    }
+
+    const coord = await uploadCoordinateApi({
+      longitude: currentCoordinate.longitude,
+      latitude: currentCoordinate.latitude,
+    }, userStore.token)
     locationStore.setCoordinate(coord)
     ElMessage.success('位置已上传')
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : '上传失败')
+    showErrorMessage(error)
   }
 }
 

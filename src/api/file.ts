@@ -44,7 +44,7 @@ export const uploadFileApi = (file: File, token: string) => {
 export const getUploadPolicyApi = (payload: DirectUploadPolicyRequest, token: string) => {
   return apiRequest<DirectUploadPolicyVO>('/api/file/upload-policy', {
     method: 'POST',
-    body: JSON.stringify(payload),
+    body: payload,
     token,
   })
 }

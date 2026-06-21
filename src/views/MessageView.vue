@@ -96,6 +96,7 @@ import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Bell, Loading } from '@element-plus/icons-vue'
 import { useUserStore } from '@/stores/user'
+import { showErrorMessage } from '@/api/http'
 import { listSessionApi, listNoticeApi, readNoticeApi, clearUnreadApi, type MessageSessionVO, type MessageNoticeVO } from '@/api/message'
 
 const router = useRouter()
@@ -166,7 +167,7 @@ const readNotice = async (noticeId: string) => {
     const n = notices.value.find(item => item.id === noticeId)
     if (n) n.isRead = 1
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : '操作失败')
+    showErrorMessage(error)
   }
 }
 

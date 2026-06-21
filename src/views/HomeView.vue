@@ -3,12 +3,14 @@
     <el-affix :offset="0">
       <header class="header">
         <div class="header-content">
-          <el-icon class="location-icon" @click="isLoading ? null : getLocation()">
+          <el-icon class="location-icon" @click="getLocation">
             <Loading v-if="isLoading" class="is-loading" />
             <Location v-else />
           </el-icon>
           <div class="location-text">
-            <span class="text-truncate">{{ locationText }}</span>
+            <el-tooltip :content="locationText" placement="bottom" :show-after="400">
+              <span class="text-truncate">{{ locationText }}</span>
+            </el-tooltip>
             <el-icon>
               <CaretBottom />
             </el-icon>
@@ -27,17 +29,37 @@
             clearable
           />
 
+          <!-- 热搜面板（搜索框为空） -->
           <transition name="el-fade-in-linear">
-            <div class="hot-search-panel" v-if="isSearchFocused && !searchInput">
-              <div class="hot-title">热门搜索</div>
-              <ul class="hot-list">
-                <li v-for="(item, index) in hotSearchs" :key="index" @click="clickHotSearch(item)">
+            <div class="search-drop-panel" v-if="isSearchFocused && !searchInput">
+              <div class="panel-title">热门搜索</div>
+              <ul class="panel-list">
+                <li v-for="(item, index) in hotSearchs" :key="index" @mousedown.prevent="clickHotSearch(item)">
                   <span :class="['rank-num', { 'top-rank': index < 3 }]">{{ index + 1 }}</span>
                   <span class="hot-text">{{ item }}</span>
                   <el-tag v-if="index < 2" size="small" type="danger" effect="plain" round
                     style="margin-left: 5px; transform: scale(0.8);">热</el-tag>
                 </li>
               </ul>
+            </div>
+          </transition>
+
+          <!-- 搜索建议面板（用户输入时） -->
+          <transition name="el-fade-in-linear">
+            <div class="search-drop-panel" v-if="isSearchFocused && searchInput">
+              <div class="panel-title">搜索建议</div>
+              <ul class="panel-list">
+                <li v-for="(item, index) in suggestions" :key="index" @mousedown.prevent="clickSuggest(item)">
+                  <el-icon><Search /></el-icon>
+                  <span class="hot-text">
+                    <span class="suggest-highlight">{{ item.slice(0, searchInput.length) }}</span>{{ item.slice(searchInput.length) }}
+                  </span>
+                </li>
+              </ul>
+              <div v-if="suggestLoading" class="panel-loading">加载中...</div>
+              <div v-else-if="searchInput && !suggestLoading && suggestions.length === 0" class="panel-empty">
+                暂无搜索建议
+              </div>
             </div>
           </transition>
         </div>
@@ -77,23 +99,18 @@
     </div>
 
     <div class="recommendtype">
-      <el-dropdown trigger="click" @command="handleSort">
-        <span class="el-dropdown-link filter-item">
-          综合排序<el-icon class="el-icon--right">
-            <CaretBottom />
-          </el-icon>
-        </span>
-        <template #dropdown>
-          <el-dropdown-menu>
-            <el-dropdown-item command="rating">好评优先</el-dropdown-item>
-            <el-dropdown-item command="distance">距离最近</el-dropdown-item>
-          </el-dropdown-menu>
-        </template>
-      </el-dropdown>
-
-      <span class="filter-item" @click="handleSort('distance')">距离最近</span>
-      <span class="filter-item" @click="handleSort('sales')">销量最高</span>
-      <span class="filter-item" @click="handleSort('filter')">
+      <span
+        class="sort-item"
+        :class="{ active: sortType === 'rating' }"
+        @click="handleSort('rating')"
+      >综合排序</span>
+      <span
+        class="sort-item"
+        :class="{ active: sortType === 'sales' }"
+        @click="handleSort('sales')"
+      >销量最高</span>
+      <span class="sort-item">距离最近</span>
+      <span class="sort-item">
         筛选<el-icon><Filter /></el-icon>
       </span>
     </div>
@@ -119,14 +136,14 @@
           <div class="merchants-info-star">
             <div class="star-wrapper">
               <el-rate
-                v-model="shop.reviewScore"
+                :model-value="reviewAvg(shop.reviewScore, shop.reviewCount)"
                 disabled
                 show-score
                 text-color="#ff9900"
                 score-template="{value}"
                 size="small"
               />
-              <span class="sales">月售{{ formatSales(shop.salesCount) }}</span>
+              <span class="sales">销售{{ formatSales(shop.salesCount) }}</span>
             </div>
             <el-tag effect="dark" type="primary" size="small" class="delivery-tag">蜂鸟专送</el-tag>
           </div>
@@ -134,8 +151,9 @@
           <div class="merchants-info-delivery">
             <span>&#165;{{ shop.deliveryFee }} 配送</span>
             <span>
-              {{ shop.distanceText }}
-              | {{ shop.durationText }}
+              <template v-if="shop.distanceText">{{ shop.distanceText }}</template>
+              <template v-if="shop.distanceText && shop.durationText"> | </template>
+              <template v-if="shop.durationText">{{ shop.durationText }}</template>
             </span>
           </div>
 
@@ -155,51 +173,87 @@
           </div>
         </div>
       </li>
+
+      <!-- 触底加载哨兵 -->
+      <li ref="sentinelRef" class="sentinel">
+        <div v-if="shopLoadingMore" class="loading-more">
+          <el-icon class="is-loading"><Loading /></el-icon>
+          <span>加载更多...</span>
+        </div>
+        <div v-else-if="!hasMore && shops.length > 0" class="no-more">— 没有更多了 —</div>
+      </li>
     </ul>
   </div>
 </template>
 
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
 import {
-  Loading, Location, CaretBottom, Search, Filter, MoreFilled,
-  HomeFilled, Compass, Document, User
+  Loading, Location, CaretBottom, Search, Filter, MoreFilled
 } from '@element-plus/icons-vue'
-import { listHotSearchApi, searchShopApi, type ShopVO } from '@/api/shop'
+import { showErrorMessage } from '@/api/http'
+import { listHotSearchApi, searchShopApi, suggestSearchApi, type ShopVO } from '@/api/shop'
+import { useLocationStore } from '@/stores/location'
 
 const router = useRouter()
+const locationStore = useLocationStore()
 
 // 定位
-const isLoading = ref(false)
-const locationText = ref('成都市天府软件园')
+const isLoading = computed(() => locationStore.addressRefreshing)
+const locationText = computed(() => locationStore.displayAddress || '定位中...')
 
-const getLocation = () => {
-  isLoading.value = true
-  setTimeout(() => {
-    isLoading.value = false
-    locationText.value = '成都市天府软件园D区'
-  }, 1000)
+const getLocation = async () => {
+  await locationStore.refreshLocationNow()
 }
 
 // 搜索
 const searchInput = ref('')
 const isSearchFocused = ref(false)
 const hotSearchs = ref<string[]>([])
+const suggestions = ref<string[]>([])
+const suggestLoading = ref(false)
+let suggestTimer: number | undefined
 
 const handleSearchFocus = () => { isSearchFocused.value = true }
 const handleSearchBlur = () => { setTimeout(() => isSearchFocused.value = false, 200) }
 const searchKey = () => {
   searchQuery.value = searchInput.value
-  fetchShops()
+  isSearchFocused.value = false
+  resetAndFetch()
 }
 const clickHotSearch = (item: string) => {
   searchInput.value = item
   isSearchFocused.value = false
   searchQuery.value = item
-  fetchShops()
+  resetAndFetch()
 }
+const clickSuggest = (item: string) => {
+  searchInput.value = item
+  isSearchFocused.value = false
+  searchQuery.value = item
+  resetAndFetch()
+}
+
+// 搜索提示：输入时 300ms 防抖
+watch(searchInput, (val) => {
+  if (suggestTimer) clearTimeout(suggestTimer)
+  if (!val || !val.trim()) {
+    suggestions.value = []
+    return
+  }
+  suggestTimer = window.setTimeout(async () => {
+    suggestLoading.value = true
+    try {
+      const result = await suggestSearchApi(val.trim())
+      suggestions.value = result || []
+    } catch {
+      suggestions.value = []
+    } finally {
+      suggestLoading.value = false
+    }
+  }, 300)
+})
 
 // 分类
 const foodTypes = reactive([
@@ -216,15 +270,17 @@ const foodTypes = reactive([
 ])
 
 // 排序和筛选
-const sortType = ref<string>('distance')
+const sortType = ref<string>('rating')
 const searchQuery = ref('')
 
 const handleSort = (type: string) => {
   sortType.value = type
-  fetchShops()
+  resetAndFetch()
 }
 
-// 商家列表
+// 商家列表（游标分页）
+const PAGE_SIZE = 5
+
 interface ShopDisplay extends ShopVO {
   distanceText: string
   durationText: string
@@ -233,6 +289,18 @@ interface ShopDisplay extends ShopVO {
 
 const shops = ref<ShopDisplay[]>([])
 const shopLoading = ref(false)
+const shopLoadingMore = ref(false)
+const nextCursor = ref<string | undefined>(undefined)
+const hasMore = ref(true)
+const sentinelRef = ref<HTMLElement | null>(null)
+let sentinelObserver: IntersectionObserver | undefined
+
+const reviewAvg = (score: number | string, count: number | string) => {
+  const s = Number(score)
+  const c = Number(count)
+  if (!c) return 0
+  return Math.round((s / c) * 10) / 10 // 保留1位小数，不做四舍五入
+}
 
 const formatSales = (count: number) => {
   if (count >= 1000) return `${(count / 1000).toFixed(0)}k`
@@ -240,35 +308,101 @@ const formatSales = (count: number) => {
 }
 
 const buildShopDisplay = (shop: ShopVO): ShopDisplay => {
-  // 估算距离和时间（后续可从定位服务获取精确值）
-  const dist = 0
-  const distText = dist >= 1000 ? `${(dist / 1000).toFixed(1)}km` : `${dist}m`
-  const duration = 20 + Math.floor(Math.random() * 20)
+  const dist = haversineDistance(
+    locationStore.currentCoordinate?.longitude ?? 0,
+    locationStore.currentCoordinate?.latitude ?? 0,
+    Number(shop.longitude),
+    Number(shop.latitude)
+  )
+  const distText = dist >= 1000 ? `${(dist / 1000).toFixed(1)}km` : `${Math.round(dist)}m`
+  const duration = 15 + Math.floor(dist / 500) * 5 + Math.floor(Math.random() * 10)
 
   return {
     ...shop,
-    distanceText: distText,
-    durationText: `${duration}分钟`,
+    distanceText: dist > 0 ? distText : '',
+    durationText: dist > 0 ? `${duration}分钟` : '',
     promotions: shop.description
       ? [{ color: '#f07373', icon: '减', text: shop.description }]
       : [],
   }
 }
 
+/** Haversine 大圆距离（单位：米） */
+const haversineDistance = (lng1: number, lat1: number, lng2: number, lat2: number) => {
+  const R = 6371000
+  const toRad = (deg: number) => (deg * Math.PI) / 180
+  const dLat = toRad(lat2 - lat1)
+  const dLng = toRad(lng2 - lng1)
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+}
+
 const fetchShops = async () => {
   shopLoading.value = true
   try {
+    const coord = locationStore.currentCoordinate
     const result = await searchShopApi({
+      longitude: coord?.longitude,
+      latitude: coord?.latitude,
       query: searchQuery.value || undefined,
       sort: sortType.value as 'distance' | 'rating' | 'sales',
-      size: 20,
+      size: PAGE_SIZE,
     })
     shops.value = (result.records || []).map(buildShopDisplay)
+    nextCursor.value = result.nextCursor || undefined
+    hasMore.value = result.hasMore ?? false
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : '商家加载失败')
+    showErrorMessage(error)
   } finally {
     shopLoading.value = false
   }
+}
+
+const loadMore = async () => {
+  if (!hasMore.value || shopLoadingMore.value || shopLoading.value) return
+  shopLoadingMore.value = true
+  try {
+    const coord = locationStore.currentCoordinate
+    const result = await searchShopApi({
+      longitude: coord?.longitude,
+      latitude: coord?.latitude,
+      query: searchQuery.value || undefined,
+      sort: sortType.value as 'distance' | 'rating' | 'sales',
+      cursor: nextCursor.value,
+      size: PAGE_SIZE,
+    })
+    const newShops = (result.records || []).map(buildShopDisplay)
+    shops.value.push(...newShops)
+    nextCursor.value = result.nextCursor || undefined
+    hasMore.value = result.hasMore ?? false
+  } catch (error) {
+    showErrorMessage(error)
+  } finally {
+    shopLoadingMore.value = false
+  }
+}
+
+const resetAndFetch = () => {
+  nextCursor.value = undefined
+  hasMore.value = true
+  shops.value = []
+  fetchShops()
+}
+
+const setupSentinel = () => {
+  if (!sentinelRef.value) return
+  sentinelObserver = new IntersectionObserver((entries) => {
+    if (entries[0]?.isIntersecting) {
+      loadMore()
+    }
+  }, { rootMargin: '100px' })
+  sentinelObserver.observe(sentinelRef.value)
+}
+
+const clickMerchant = (id: string) => {
+  router.push(`/shop/${id}`)
 }
 
 const fetchHotSearch = async () => {
@@ -278,18 +412,24 @@ const fetchHotSearch = async () => {
       hotSearchs.value = keywords
     }
   } catch {
-    // 降级使用默认关键词
     hotSearchs.value = ['螺蛳粉', '烧烤', '蜜雪冰城', '汉堡', '麻辣烫', '奶茶']
   }
 }
 
-const clickMerchant = (id: string) => {
-  router.push(`/shop/${id}`)
-}
-
 onMounted(() => {
   fetchHotSearch()
-  fetchShops()
+  resetAndFetch()
+})
+
+// 哨兵元素挂载后启动监听
+watch(sentinelRef, (el) => {
+  sentinelObserver?.disconnect()
+  if (el) setupSentinel()
+})
+
+onUnmounted(() => {
+  if (suggestTimer) clearTimeout(suggestTimer)
+  sentinelObserver?.disconnect()
 })
 </script>
 
@@ -345,7 +485,7 @@ onMounted(() => {
   box-shadow: none;
 }
 
-.hot-search-panel {
+.search-drop-panel {
   position: absolute;
   top: 100%;
   left: 0;
@@ -360,29 +500,38 @@ onMounted(() => {
   box-sizing: border-box;
 }
 
-.hot-title {
+.panel-title {
   font-size: 14px;
   font-weight: bold;
   margin-bottom: 10px;
   color: #666;
 }
 
-.hot-list {
+.panel-list {
   list-style: none;
   padding: 0;
   margin: 0;
 }
 
-.hot-list li {
+.panel-list li {
   padding: 10px 0;
   display: flex;
   align-items: center;
+  gap: 6px;
   cursor: pointer;
   border-bottom: 1px solid #f0f0f0;
 }
 
-.hot-list li:last-child {
+.panel-list li:last-child {
   border-bottom: none;
+}
+
+.panel-loading,
+.panel-empty {
+  font-size: 13px;
+  color: #999;
+  text-align: center;
+  padding: 10px 0 0;
 }
 
 .rank-num {
@@ -397,6 +546,10 @@ onMounted(() => {
 
 .hot-text {
   font-size: 14px;
+}
+
+.suggest-highlight {
+  color: #ff5339;
 }
 
 .foodtype {
@@ -538,13 +691,19 @@ onMounted(() => {
   border-bottom: 1px solid #eee;
 }
 
-.filter-item {
+.sort-item {
   font-size: 14px;
   color: #666;
   display: flex;
   align-items: center;
   gap: 3px;
   cursor: pointer;
+  user-select: none;
+}
+
+.sort-item.active {
+  color: #0085ff;
+  font-weight: 600;
 }
 
 .loading-state {
@@ -671,5 +830,26 @@ onMounted(() => {
   display: flex;
   align-items: center;
   color: #999;
+}
+
+/* 分页哨兵 */
+.sentinel {
+  display: flex !important;
+  justify-content: center;
+  padding: 18px 15px !important;
+  cursor: default !important;
+}
+
+.loading-more {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #999;
+  font-size: 13px;
+}
+
+.no-more {
+  color: #ccc;
+  font-size: 13px;
 }
 </style>

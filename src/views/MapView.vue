@@ -69,7 +69,7 @@ let mapInstance: any = null
 let drivingInstance: any = null
 
 const amapKey = import.meta.env.VITE_AMAP_KEY
-const amapServiceHost = import.meta.env.VITE_AMAP_SERVICE_HOST || 'https://data.zxylearn.top/_AMapService'
+const amapServiceHost = import.meta.env.VITE_AMAP_SERVICE_HOST || ''
 
 const mapPoints: [MapPoint, MapPoint] = [
   {
@@ -108,7 +108,7 @@ const initMap = async () => {
 
   try {
     ;(window as Window & {
-      _AMapSecurityConfig?: { serviceHost: string }
+      _AMapSecurityConfig?: { serviceHost?: string }
     })._AMapSecurityConfig = {
       serviceHost: amapServiceHost
     }

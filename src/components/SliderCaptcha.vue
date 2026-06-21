@@ -5,7 +5,7 @@
     width="340px"
     :close-on-click-modal="false"
     :close-on-press-escape="false"
-    :show-close="false"
+    :show-close="true"
     align-center
     @close="handleClose"
   >
@@ -82,6 +82,7 @@
 import { computed, nextTick, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { ArrowRightBold, Check } from '@element-plus/icons-vue'
+import { showErrorMessage } from '@/api/http'
 import {
   getSliderCaptchaApi,
   type SliderCaptchaTrack,
@@ -96,6 +97,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'update:visible', value: boolean): void
   (e: 'success', data: { captchaId: string; captchaData: SliderCaptchaTrack }): void
+  (e: 'cancel'): void
 }>()
 
 const STAGE_MAX_WIDTH = 280
@@ -180,7 +182,7 @@ const refreshCaptcha = async () => {
     await nextTick()
   } catch (error) {
     captcha.value = null
-    ElMessage.error(error instanceof Error ? error.message : '滑块验证码加载失败')
+    showErrorMessage(error)
   } finally {
     loading.value = false
   }
@@ -313,8 +315,9 @@ const handleConfirm = () => {
 }
 
 const handleClose = () => {
+  emit('update:visible', false)
   if (!verifyPassed.value) {
-    emit('update:visible', false)
+    emit('cancel')
   }
 }
 

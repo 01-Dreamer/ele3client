@@ -89,7 +89,8 @@ import { ElMessage } from 'element-plus'
 import { Message, Lock, Key } from '@element-plus/icons-vue'
 import SliderCaptcha from '@/components/SliderCaptcha.vue'
 import { registerApi, sendRegisterEmailCaptchaApi } from '@/api/auth'
-import type { SliderCaptchaVO } from '@/api/risk'
+import { showErrorMessage } from '@/api/http'
+import type { SliderCaptchaTrack } from '@/api/risk'
 
 const router = useRouter()
 const email = ref('')
@@ -126,7 +127,7 @@ const handleRegister = async () => {
     router.push('/login')
   } catch (error) {
     loading.value = false
-    ElMessage.error(error instanceof Error ? error.message : '注册失败')
+    showErrorMessage(error)
   }
 }
 
@@ -140,7 +141,7 @@ const sendCode = async () => {
   sliderVisible.value = true
 }
 
-const onSliderSuccess = async (result: { captchaId: string; captchaData: SliderCaptchaVO }) => {
+const onSliderSuccess = async (result: { captchaId: string; captchaData: SliderCaptchaTrack }) => {
   sliderVisible.value = false
   codeLoading.value = true
 
@@ -156,7 +157,7 @@ const onSliderSuccess = async (result: { captchaId: string; captchaData: SliderC
     startCountdown(60)
   } catch (error) {
     codeLoading.value = false
-    ElMessage.error(error instanceof Error ? error.message : '验证码发送失败')
+    showErrorMessage(error)
   }
 }
 

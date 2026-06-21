@@ -1,8 +1,15 @@
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
-import { loginApi, type LoginRequest } from '@/api/auth'
+import {
+  listThirdAccountBindingApi,
+  loginApi,
+  logoutApi,
+  type LoginRequest,
+  type ThirdAccountVO,
+} from '@/api/auth'
 import { getUserProfileApi } from '@/api/user'
 import { hasApiBaseUrl } from '@/api/http'
+import { useLocationStore } from '@/stores/location'
 
 type UserRole = 'USER' | 'ADMIN' | 'MERCHANT' | 'RIDER' | string
 
@@ -13,6 +20,7 @@ export interface UserInfo {
   status: number
   nickname?: string
   avatar?: string
+  campusId?: string
 }
 
 interface StoredUserState {
@@ -76,10 +84,21 @@ export const useUserStore = defineStore('user', () => {
     })
   }
 
+  const startLocationTracking = () => {
+    const locationStore = useLocationStore()
+    locationStore.startLocationService(() => token.value)
+  }
+
+  const stopLocationTracking = () => {
+    const locationStore = useLocationStore()
+    locationStore.stopLocationService()
+  }
+
   const setLoginState = (nextToken: string, nextUserInfo: UserInfo) => {
     token.value = nextToken
     userInfo.value = nextUserInfo
     persist()
+    startLocationTracking()
   }
 
   const login = async (payload: LoginRequest) => {
@@ -116,10 +135,55 @@ export const useUserStore = defineStore('user', () => {
     return userInfo.value
   }
 
-  const logout = () => {
+  const setCampusId = (campusId: string) => {
+    if (!userInfo.value) return
+    userInfo.value = {
+      ...userInfo.value,
+      campusId
+    }
+    persist()
+  }
+
+  const syncBindings = async () => {
+    if (!hasApiBaseUrl() || !token.value || !userInfo.value) {
+      return []
+    }
+
+    const bindings = await listThirdAccountBindingApi(token.value)
+    const campus = bindings.find((item: ThirdAccountVO) => item.provider === 'CAMPUS')
+
+    if (campus?.openId) {
+      setCampusId(campus.openId)
+    } else if (userInfo.value.campusId) {
+      setCampusId('')
+    }
+
+    return bindings
+  }
+
+  const logoutLocal = () => {
+    stopLocationTracking()
     token.value = ''
     userInfo.value = null
     removeStoredState()
+  }
+
+  if (typeof window !== 'undefined' && token.value) {
+    window.setTimeout(startLocationTracking, 0)
+  }
+
+  const logout = async () => {
+    const currentToken = token.value
+
+    try {
+      if (hasApiBaseUrl() && currentToken) {
+        await logoutApi(currentToken)
+      }
+    } catch {
+      // 后端暂未提供退出接口时，仍然清理前端登录态。
+    } finally {
+      logoutLocal()
+    }
   }
 
   return {
@@ -133,6 +197,11 @@ export const useUserStore = defineStore('user', () => {
     login,
     fetchProfile,
     logout,
+    logoutLocal,
+    startLocationTracking,
+    stopLocationTracking,
+    setCampusId,
+    syncBindings,
     setLoginState
   }
 })

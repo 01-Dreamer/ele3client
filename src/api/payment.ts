@@ -51,7 +51,7 @@ export const getBalanceApi = (token: string) => {
 export const alipayRechargeApi = (payload: WalletRechargeRequest, token: string) => {
   return apiRequest<PaymentCreateVO>('/api/payment/alipay-recharge', {
     method: 'POST',
-    body: JSON.stringify(payload),
+    body: payload,
     token,
   })
 }
@@ -60,7 +60,7 @@ export const alipayRechargeApi = (payload: WalletRechargeRequest, token: string)
 export const alipayWithdrawApi = (payload: WalletWithdrawRequest, token: string) => {
   return apiRequest<WalletWithdrawVO>('/api/payment/alipay-withdraw', {
     method: 'POST',
-    body: JSON.stringify(payload),
+    body: payload,
     token,
   })
 }

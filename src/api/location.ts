@@ -16,10 +16,10 @@ export interface CoordinateVO {
 // --- API ---
 
 /** 上传自己的经纬度 */
-export const uploadCoordinateApi = (payload: CoordinateUploadRequest, token: string) => {
+export const uploadCoordinateApi = (payload: CoordinateUploadRequest, token?: string) => {
   return apiRequest<CoordinateVO>('/api/location/coordinate', {
     method: 'POST',
-    body: JSON.stringify(payload),
+    body: payload,
     token,
   })
 }
