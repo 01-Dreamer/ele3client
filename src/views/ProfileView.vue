@@ -5,15 +5,15 @@
     </header>
 
     <section class="profile-card">
-      <el-avatar
-        class="profile-avatar"
-        :size="68"
-        :src="userStore.avatar"
-      />
+      <div class="avatar-upload" @click="triggerAvatar">
+        <el-avatar class="profile-avatar" :size="68" :src="avatarPreview" />
+        <div class="avatar-overlay"><el-icon><Camera /></el-icon></div>
+        <input ref="avatarInputRef" type="file" accept="image/*" style="display:none" @change="onAvatarChange" />
+      </div>
 
       <div class="profile-info">
-        <h3>{{ userStore.nickname }}</h3>
-        <p>{{ userStore.userInfo?.email || '' }}</p>
+        <h3 @click="editNickname" class="nickname-editable">{{ userStore.nickname }}</h3>
+        <p class="profile-loc">{{ selectedLocName }} {{ selectedLocPhone }}</p>
       </div>
     </section>
 
@@ -33,7 +33,7 @@
         <el-button type="primary" link class="profile-link-btn" @click="router.push('/location')">
           位置管理
         </el-button>
-        <strong>{{ locationStore.currentAddress }}</strong>
+        <strong>{{ selectedLocAddr }}</strong>
       </div>
       <div class="info-item">
         <el-button type="primary" link class="profile-link-btn" @click="router.push('/my-shops')">
@@ -54,7 +54,7 @@
         </div>
         <span class="bind-account">{{ userStore.userInfo?.email || '未绑定' }}</span>
       </div>
-      <div class="bind-item">
+      <div class="bind-item" :class="{ clickable: isAdmin }" @click="goAdmin">
         <div class="bind-left">
           <span class="bind-icon" style="background-color: #67c23a;">
             <el-icon><User /></el-icon>
@@ -107,8 +107,14 @@
         安全退出
       </el-button>
     </section>
+    <el-dialog v-model="nicknameEditing" title="修改昵称" width="80%">
+      <el-input v-model="nicknameForm" placeholder="输入新昵称" maxlength="20" />
+      <template #footer>
+        <el-button @click="nicknameEditing = false">取消</el-button>
+        <el-button type="primary" @click="saveNickname">保存</el-button>
+      </template>
+    </el-dialog>
 
-    <!-- 修改密码弹窗 -->
     <el-dialog v-model="showChangePassword" title="修改密码" width="90%">
       <el-form label-position="top" size="default">
         <el-form-item label="旧密码">
@@ -147,17 +153,43 @@
       </div>
     </el-dialog>
   </div>
+
+    <el-dialog v-model="rechargeVisible" :title="rechargeStep === 'qrcode' ? '支付宝充值' : '充值'" width="300px" :close-on-click-modal="false" align-center>
+      <div v-if="rechargeStep === 'choose'" class="pay-choose">
+        <el-form label-position="top">
+          <el-form-item label="金额"><el-input-number v-model="rechargeAmount" :min="1" :precision="2" style="width:100%" /></el-form-item>
+        </el-form>
+        <el-button type="primary" size="large" style="width:100%" :loading="recharging" @click="doRecharge">确认充值</el-button>
+      </div>
+      <div v-else style="text-align:center;padding:10px 0">
+        <img v-if="rechargeQr" :src="rechargeQr" style="display:block;margin:0 auto;width:200px;height:200px" />
+        <p style="font-size:14px;color:#666;margin:12px 0 0">请使用支付宝扫码充值</p>
+      </div>
+    </el-dialog>
+
+    <el-dialog v-model="withdrawVisible" title="提现" width="90%">
+      <el-form label-position="top" size="default">
+        <el-form-item label="支付宝UID"><el-input v-model="withdrawUid" placeholder="请输入支付宝UID" /></el-form-item>
+        <el-form-item label="金额"><el-input-number v-model="withdrawAmount" :min="1" :precision="2" style="width:100%" /></el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="withdrawVisible = false">取消</el-button>
+        <el-button type="primary" :loading="withdrawing" @click="doWithdraw">确认提现</el-button>
+      </template>
+    </el-dialog>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { Connection, User, Message, Key } from '@element-plus/icons-vue'
+import { Connection, User, Message, Key, Camera, LocationFilled } from '@element-plus/icons-vue'
 import { useUserStore } from '@/stores/user'
 import { useLocationStore } from '@/stores/location'
 import { showErrorMessage } from '@/api/http'
-import { getBalanceApi, alipayRechargeApi, alipayWithdrawApi } from '@/api/payment'
+import { updateUserProfileApi } from '@/api/user'
+import { uploadImage, cleanupUpload, type UploadResult } from '@/services/fileUpload'
+import { getBalanceApi, alipayRechargeApi, alipayWithdrawApi, getPaymentStatusApi } from '@/api/payment'
 import {
   changePasswordApi,
   checkYnuBindQrCodeApi,
@@ -167,7 +199,60 @@ import { createQrCodeDataUrl } from '@/utils/qrcode'
 
 const userStore = useUserStore()
 const locationStore = useLocationStore()
+const selectedLocName = computed(() => {
+  const loc = locationStore.selectedLocation as Record<string, unknown> | null
+  return (loc?.name as string) || '未设置'
+})
+const selectedLocPhone = computed(() => {
+  const loc = locationStore.selectedLocation as Record<string, unknown> | null
+  return (loc?.phone as string) || ''
+})
+const selectedLocAddr = computed(() => {
+  const loc = locationStore.selectedLocation as Record<string, unknown> | null
+  return (loc?.address as string) || '未选择'
+})
 const router = useRouter()
+
+// 头像/昵称编辑
+const avatarPreview = computed(() => userStore.avatar)
+const avatarInputRef = ref<HTMLInputElement | null>(null)
+const avatarUploading = ref(false)
+const pendingAvatarResult = ref<UploadResult | null>(null)
+const nicknameEditing = ref(false)
+const nicknameForm = ref('')
+
+// 触发头像选择。
+const triggerAvatar = () => avatarInputRef.value?.click()
+// 处理头像上传。
+const onAvatarChange = async (e: Event) => {
+  const file = (e.target as HTMLInputElement).files?.[0]
+  if (!file) return
+  avatarUploading.value = true
+  const result = await uploadImage(file, userStore.token)
+  if (result) {
+    await updateUserProfileApi({ avatar: result.url }, userStore.token)
+    await userStore.fetchProfile()
+    if (pendingAvatarResult.value) cleanupUpload(pendingAvatarResult.value.objectName, userStore.token)
+    pendingAvatarResult.value = result
+    ElMessage.success('头像已更新')
+  }
+  avatarUploading.value = false
+}
+// 进入昵称编辑。
+const editNickname = () => {
+  nicknameForm.value = userStore.nickname
+  nicknameEditing.value = true
+}
+// 保存昵称。
+const saveNickname = async () => {
+  if (!nicknameForm.value.trim()) return
+  try {
+    await updateUserProfileApi({ nickname: nicknameForm.value.trim() }, userStore.token)
+    await userStore.fetchProfile()
+    nicknameEditing.value = false
+    ElMessage.success('昵称已更新')
+  } catch (e) { showErrorMessage(e) }
+}
 
 const balance = ref(0)
 const showChangePassword = ref(false)
@@ -188,6 +273,10 @@ const pwSubmitting = ref(false)
 let campusTimer: number | undefined
 let campusSuccessTimer: number | undefined
 
+const isAdmin = computed(() => userStore.userInfo?.role === 'ADMIN')
+// 进入管理页面。
+const goAdmin = () => { if (isAdmin.value) router.push('/admin') }
+
 const roleLabel = computed(() => {
   const role = userStore.userInfo?.role
   const map: Record<string, string> = {
@@ -201,6 +290,7 @@ const roleLabel = computed(() => {
 
 const campusAccount = computed(() => userStore.userInfo?.campusId || '未绑定')
 
+// 加载账户余额。
 const fetchBalance = async () => {
   if (!userStore.token) return
   loadingBalance.value = true
@@ -214,6 +304,7 @@ const fetchBalance = async () => {
   }
 }
 
+// 加载账号绑定信息。
 const fetchBindings = async () => {
   if (!userStore.token) return
 
@@ -224,38 +315,84 @@ const fetchBindings = async () => {
   }
 }
 
-const handleRecharge = async () => {
-  if (!userStore.isLoggedIn) {
-    ElMessage.warning('请先登录')
-    return
-  }
-  try {
-    const amount = 20
-    const result = await alipayRechargeApi({ amount }, userStore.token)
-    ElMessage.success(`充值订单已创建：${result.payUrl}`)
-  } catch (error) {
-    showErrorMessage(error)
-  }
-}
+  // 充值
+  const rechargeVisible = ref(false)
+  const rechargeStep = ref<'choose' | 'qrcode'>('choose')
+  const rechargeAmount = ref(20)
+  const rechargeQr = ref('')
+  const recharging = ref(false)
+  let rechargeTimer: number | undefined
 
-const handleWithdraw = async () => {
-  if (!userStore.isLoggedIn) {
-    ElMessage.warning('请先登录')
-    return
+  // 打开充值弹窗。
+  const handleRecharge = () => {
+    if (!userStore.isLoggedIn) { ElMessage.warning('请先登录'); return }
+    rechargeStep.value = 'choose'
+    rechargeAmount.value = 20
+    rechargeVisible.value = true
   }
-  try {
-    const amount = 10
-    const result = await alipayWithdrawApi(
-      { alipayUserId: 'example', amount },
-      userStore.token
-    )
-    ElMessage.success(`提现申请已提交，状态：${result.status}`)
-    fetchBalance()
-  } catch (error) {
-    showErrorMessage(error)
-  }
-}
 
+  // 提交充值。
+  const doRecharge = async () => {
+    recharging.value = true
+    try {
+      const result = await alipayRechargeApi({ amount: rechargeAmount.value }, userStore.token)
+      rechargeQr.value = await createQrCodeDataUrl(result.payUrl)
+      rechargeStep.value = 'qrcode'
+      startRechargePoll(result.paymentId)
+    } catch (e) { showErrorMessage(e) }
+    finally { recharging.value = false }
+  }
+
+  // 启动充值支付轮询。
+  const startRechargePoll = (paymentId: string) => {
+    stopRechargePoll()
+    rechargeTimer = window.setInterval(async () => {
+      try {
+        const r = await getPaymentStatusApi(paymentId, '')
+        if (r.status !== 0) {
+          stopRechargePoll()
+          if (r.status === 1) { ElMessage.success('充值成功'); rechargeVisible.value = false; fetchBalance() }
+          else if (r.status === 2) ElMessage.error('充值已过期')
+          else ElMessage.error('充值状态异常')
+        }
+      } catch { /* */ }
+    }, 2000)
+  }
+
+  // 停止充值支付轮询。
+  const stopRechargePoll = () => {
+    if (rechargeTimer) { clearInterval(rechargeTimer); rechargeTimer = undefined }
+  }
+  watch(rechargeVisible, (v) => { if (!v) stopRechargePoll() })
+
+  // 提现
+  const withdrawVisible = ref(false)
+  const withdrawUid = ref('')
+  const withdrawAmount = ref(10)
+  const withdrawing = ref(false)
+
+  // 打开提现弹窗。
+  const handleWithdraw = () => {
+    if (!userStore.isLoggedIn) { ElMessage.warning('请先登录'); return }
+    withdrawUid.value = ''
+    withdrawAmount.value = 10
+    withdrawVisible.value = true
+  }
+
+  // 提交提现。
+  const doWithdraw = async () => {
+    if (!withdrawUid.value || !withdrawAmount.value) { ElMessage.warning('请填写完整信息'); return }
+    withdrawing.value = true
+    try {
+      await alipayWithdrawApi({ alipayUserId: withdrawUid.value, amount: withdrawAmount.value }, userStore.token)
+      ElMessage.success('提现申请已提交')
+      withdrawVisible.value = false
+      fetchBalance()
+    } catch (e) { showErrorMessage(e) }
+    finally { withdrawing.value = false }
+  }
+
+// 提交密码修改。
 const submitChangePassword = async () => {
   if (!userStore.token) return
   if (!pwForm.oldPassword || !pwForm.newPassword) {
@@ -281,6 +418,7 @@ const submitChangePassword = async () => {
   }
 }
 
+// 打开校园账号绑定。
 const openCampusBind = async () => {
   if (!userStore.token) {
     ElMessage.warning('请先登录')
@@ -317,6 +455,7 @@ const openCampusBind = async () => {
   }
 }
 
+// 解析二维码图片内容。
 const resolveQrImage = async (data: unknown) => {
   const image = pickString(data, [
       'qrCode',
@@ -337,12 +476,14 @@ const resolveQrImage = async (data: unknown) => {
   return normalizeQrImage(image)
 }
 
+// 启动校园绑定轮询。
 const startCampusPolling = () => {
   stopCampusPolling()
   campusTimer = window.setInterval(pollCampusBind, 1800)
   pollCampusBind()
 }
 
+// 停止校园绑定轮询。
 const stopCampusPolling = () => {
   if (campusTimer) {
     window.clearInterval(campusTimer)
@@ -354,6 +495,7 @@ const stopCampusPolling = () => {
   }
 }
 
+// 轮询校园绑定状态。
 const pollCampusBind = async () => {
   if (!campusUuid.value || !userStore.token) return
 
@@ -399,6 +541,7 @@ const pickString = (value: unknown, keys: string[]): string => {
   return ''
 }
 
+// 标准化二维码图片地址。
 const normalizeQrImage = (image: string) => {
   if (!image) return ''
   if (image.startsWith('data:') || image.startsWith('http://') || image.startsWith('https://')) {
@@ -419,6 +562,7 @@ const hasScannedQr = (value: unknown): boolean => {
   })
 }
 
+// 判断扫码状态文本。
 const hasScannedText = (text: string) => {
   const normalized = text.toLowerCase()
   return [
@@ -436,6 +580,7 @@ const hasScannedText = (text: string) => {
   ].some((keyword) => normalized.includes(keyword.toLowerCase()))
 }
 
+// 处理退出登录。
 const handleLogout = async () => {
   try {
     await userStore.logout()
@@ -488,6 +633,33 @@ onUnmounted(() => {
   background-color: #ffffff;
 }
 
+.avatar-upload {
+  position: relative;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.avatar-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0,0,0,0.3);
+  border-radius: 50%;
+  opacity: 0;
+  transition: opacity .2s;
+  color: #fff;
+  font-size: 22px;
+}
+.avatar-upload:hover .avatar-overlay {
+  opacity: 1;
+}
+.nickname-editable {
+  cursor: pointer;
+}
+.nickname-editable:hover {
+  color: #0085ff;
+}
 .profile-avatar {
   flex-shrink: 0;
   border: 3px solid #f0f7ff;
@@ -511,6 +683,12 @@ onUnmounted(() => {
   margin: 0;
   color: #888888;
   font-size: 14px;
+}
+.profile-loc {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 6px;
 }
 
 .balance-section {
@@ -616,6 +794,12 @@ onUnmounted(() => {
 
 .bind-item:last-child {
   border-bottom: none;
+}
+.bind-item.clickable {
+  cursor: pointer;
+}
+.bind-item.clickable:hover {
+  background: #f0f7ff;
 }
 
 .bind-left {
@@ -735,5 +919,32 @@ onUnmounted(() => {
   color: #18a66a;
   font-size: 16px;
   font-weight: 700;
+
+.pay-choose {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+.pay-qrcode {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 0;
+}
+
+.qr-img {
+  width: 200px;
+  height: 200px;
+  border-radius: 4px;
+  display: block;
+}
+.qr-tip {
+  font-size: 14px;
+  color: #666;
+  margin: 0;
+  text-align: center;
+}
 }
 </style>

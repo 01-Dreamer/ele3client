@@ -1,4 +1,5 @@
 import { apiRequest } from './http'
+import { type PageVO } from './shop'
 import type { UserInfo } from '@/stores/user'
 
 export type UserProfileVO = Partial<UserInfo>
@@ -56,7 +57,7 @@ export interface UserLocationVO {
 }
 
 export const createUserLocationApi = (payload: UserLocationCreateRequest, token: string) => {
-  return apiRequest<UserLocationVO>('/api/user/location', {
+  return apiRequest<UserLocationVO>('/api/user/add-location', {
     method: 'POST',
     body: payload,
     token,
@@ -64,8 +65,17 @@ export const createUserLocationApi = (payload: UserLocationCreateRequest, token:
 }
 
 export const deleteUserLocationApi = (locationId: string, token: string) => {
-  return apiRequest<null>(`/api/user/location/${locationId}`, {
+  return apiRequest<null>(`/api/user/delete-location/${locationId}`, {
     method: 'DELETE',
     token,
   })
 }
+
+export const listUserLocationsApi = (page: number, size: number) => {
+  const query = new URLSearchParams()
+  if (page) query.set('page', String(page))
+  if (size) query.set('size', String(size))
+  const qs = query.toString()
+  return apiRequest<PageVO<UserLocationVO>>(`/api/user/list-location${qs ? `?${qs}` : ''}`)
+}
+

@@ -79,6 +79,13 @@ http.interceptors.response.use(
       return http.request(response.config)
     }
 
+    if (body.code === 401) {
+      // 登录失效：清数据，跳登录页
+      Object.keys(localStorage).forEach(k => { if (k.startsWith('ele3_')) localStorage.removeItem(k) })
+      window.location.href = '/login'
+      throw new ApiRequestError(body.message || '登录已失效')
+    }
+
     if (body.code !== 200) {
       throw new ApiRequestError(body.message || '请求失败')
     }
@@ -86,6 +93,11 @@ http.interceptors.response.use(
     return response
   },
   (error) => {
+    if (error.response?.data?.code === 401 || error.response?.status === 401) {
+      Object.keys(localStorage).forEach(k => { if (k.startsWith('ele3_')) localStorage.removeItem(k) })
+      window.location.href = '/login'
+      return Promise.reject(new ApiRequestError('登录已失效'))
+    }
     const msg = error.response?.data?.message || error.message || '请求失败'
     throw new ApiRequestError(msg)
   },

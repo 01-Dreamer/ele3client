@@ -50,7 +50,7 @@ export interface ShopReviewReplyVO {
   replyId: string
   reviewId: string
   userId: string
-  atUserId: string
+  atUserId?: string | null
   content: string
   createTime: string
 }
@@ -118,7 +118,7 @@ export interface ShopItemUpdateRequest {
 
 export interface ShopReviewReplyRequest {
   reviewId: string
-  atUserId: string
+  atUserId?: string | null
   content: string
 }
 

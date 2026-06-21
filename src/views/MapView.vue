@@ -94,6 +94,7 @@ const mapCenter = computed<[number, number]>(() => {
   return [lng, lat]
 })
 
+// 初始化地图。
 const initMap = async () => {
   if (!amapKey) {
     mapMessage.value = '请先在 .env 中配置高德地图 Key'
@@ -137,6 +138,7 @@ const initMap = async () => {
   }
 }
 
+// 添加地图标记。
 const addMarkers = (AMap: AMapNamespace) => {
   const markers = mapPoints.map((point) => {
     return new AMap.Marker({
@@ -149,6 +151,7 @@ const addMarkers = (AMap: AMapNamespace) => {
   mapInstance.add(markers)
 }
 
+// 创建地图标记内容。
 const createMarkerContent = (point: MapPoint) => {
   return `
     <div style="
@@ -182,11 +185,13 @@ const createMarkerContent = (point: MapPoint) => {
   `
 }
 
+// 添加地图控件。
 const addControls = (AMap: AMapNamespace) => {
   mapInstance.addControl(new AMap.Scale())
   mapInstance.addControl(new AMap.ToolBar({ position: 'RB' }))
 }
 
+// 规划地图路线。
 const planRoute = (AMap: AMapNamespace) => {
   const riderPoint = mapPoints[1]
   const userPoint = mapPoints[0]
@@ -234,6 +239,7 @@ const planRoute = (AMap: AMapNamespace) => {
   )
 }
 
+// 格式化距离。
 const formatDistance = (distance: number) => {
   if (distance >= 1000) {
     return `${(distance / 1000).toFixed(1)} km`
@@ -242,6 +248,7 @@ const formatDistance = (distance: number) => {
   return `${Math.round(distance)} m`
 }
 
+// 格式化时间。
 const formatDuration = (seconds: number) => {
   const minutes = Math.max(1, Math.round(seconds / 60))
   return `${minutes} 分钟`

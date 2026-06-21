@@ -4,53 +4,40 @@
       <h2>{{ chatNickname }}</h2>
     </header>
 
-    <main ref="messageListRef" class="chat-message-list">
+    <main ref="messageListRef" class="chat-message-list" @scroll="onScroll">
       <div v-if="loadingHistory" class="loading-state">
         <el-icon class="is-loading" size="20"><Loading /></el-icon>
-        <span>加载消息...</span>
+        <span>加载中...</span>
+      </div>
+      <div v-else-if="loadingMore" class="loading-state">
+        <el-icon class="is-loading" size="16"><Loading /></el-icon>
+        <span>加载历史消息...</span>
+      </div>
+      <div v-else-if="chatMessages.length === 0" class="empty-chat">
+        <el-empty description="暂无消息" :image-size="60" />
       </div>
 
       <div
-        v-for="message in chatMessages"
-        :key="message.id"
+        v-for="(message, idx) in chatMessages"
+        :key="idx"
         :class="['chat-message', message.sender === 'me' ? 'is-me' : 'is-other']"
       >
-        <el-avatar
-          class="message-avatar"
-          :size="36"
-          :src="message.sender === 'me' ? userStore.avatar : '/default-avatar.svg'"
-        />
+        <el-avatar class="message-avatar" :size="36"
+          :src="message.sender === 'me' ? userStore.avatar : otherAvatar" />
         <div class="message-body">
           <span class="message-time">{{ message.time }}</span>
           <p>{{ message.content }}</p>
         </div>
       </div>
-
-      <div v-if="!loadingHistory && chatMessages.length === 0" class="empty-chat">
-        <el-empty description="暂无消息，发送一条消息吧" :image-size="60" />
-      </div>
     </main>
 
     <footer class="chat-input-bar">
-      <el-input
-        v-model="messageInput"
-        placeholder="输入消息"
-        clearable
-        :disabled="!wsConnected"
-        @keyup.enter="sendMessage"
-      />
-      <el-button
-        type="primary"
-        :disabled="!wsConnected || !messageInput.trim()"
-        @click="sendMessage"
-      >
-        发送
-      </el-button>
+      <el-input v-model="messageInput" placeholder="输入消息" clearable
+        :disabled="!wsConnected" @keyup.enter="sendMessage" />
+      <el-button type="primary" :disabled="!wsConnected || !messageInput.trim()" @click="sendMessage">发送</el-button>
     </footer>
 
-    <div v-if="!wsConnected && userStore.token" class="ws-status">
-      正在连接消息服务...
-    </div>
+    <div v-if="!wsConnected" class="ws-status">正在连接...</div>
   </div>
 </template>
 
@@ -60,144 +47,156 @@ import { useRoute } from 'vue-router'
 import { Loading } from '@element-plus/icons-vue'
 import { useUserStore } from '@/stores/user'
 import { useWebsocketStore, type WsMessage } from '@/stores/websocket'
-import { listChatApi, type MessageChatVO } from '@/api/message'
+import { listChatApi, clearUnreadApi, type MessageChatVO } from '@/api/message'
+import { fetchUserBrief, getUserNickname, getUserAvatar } from '@/services/userBrief'
 
-interface DisplayMessage {
-  id: string
-  sender: 'me' | 'other'
-  content: string
-  time: string
-}
+interface DisplayMessage { id: string; sender: 'me' | 'other'; content: string; time: string }
 
 const route = useRoute()
 const userStore = useUserStore()
 const wsStore = useWebsocketStore()
 
+const otherAvatar = ref('/default-avatar.svg')
+
 const messageInput = ref('')
 const messageListRef = ref<HTMLElement | null>(null)
 const loadingHistory = ref(false)
+const loadingMore = ref(false)
 const chatMessages = ref<DisplayMessage[]>([])
+const nextCursor = ref<string | undefined>(undefined)
+const hasMore = ref(true)
 let removeListener: (() => void) | null = null
 
-const chatNickname = computed(() => {
-  const nickname = route.query.nickname
-  return typeof nickname === 'string' && nickname ? nickname : '聊天'
-})
+const otherUserId = computed(() => (route.query.userId as string) || '')
+const chatNickname = ref('聊天')
 
-const otherUserId = computed(() => {
-  const uid = route.query.userId
-  return typeof uid === 'string' ? uid : ''
-})
-
-const wsConnected = computed(() => wsStore.connected)
-
-const fetchHistory = async () => {
-  if (!userStore.token) return
-  loadingHistory.value = true
-  try {
-    const result = await listChatApi(userStore.token)
-    const records = result.records || []
-    chatMessages.value = records.map((m: MessageChatVO) => ({
-      id: m.id,
-      sender: m.senderId === userStore.userId ? 'me' : 'other',
-      content: m.content,
-      time: formatMsgTime(m.createTime),
-    }))
-  } catch {
-    // 静默处理
-  } finally {
-    loadingHistory.value = false
+// 加载聊天对象信息。
+const loadUserBrief = async () => {
+  if (!otherUserId.value) return
+  const brief = await fetchUserBrief(otherUserId.value)
+  if (brief) {
+    chatNickname.value = brief.nickname || otherUserId.value
+    otherAvatar.value = brief.avatar || '/default-avatar.svg'
+  } else {
+    chatNickname.value = otherUserId.value
   }
 }
+const wsConnected = computed(() => wsStore.connected)
 
+const toDisplay = (m: MessageChatVO): DisplayMessage => ({
+  id: m.id,
+  sender: m.senderId === userStore.userId ? 'me' : 'other',
+  content: m.content,
+  time: formatTime(m.createTime),
+})
+
+// 加载聊天历史。
+const fetchHistory = async () => {
+  loadingHistory.value = true
+  try {
+    const result = await listChatApi(undefined, 15)
+    const records = (result.items || []) as MessageChatVO[]
+    chatMessages.value = records
+      .filter(m => otherUserId.value
+        ? (m.senderId === otherUserId.value || m.receiverId === otherUserId.value)
+        : true)
+      .reverse()
+      .map(toDisplay)
+    nextCursor.value = result.nextCursor || undefined
+    hasMore.value = result.hasMore ?? false
+    await nextTick()
+    scrollToBottom()
+  } catch (e) { console.error('fetchHistory failed', e) }
+  finally { loadingHistory.value = false }
+}
+
+// 加载更多数据。
+const loadMore = async () => {
+  if (!hasMore.value || loadingMore.value) return
+  loadingMore.value = true
+  const prevHeight = messageListRef.value?.scrollHeight || 0
+  try {
+    const result = await listChatApi(nextCursor.value, 15)
+    const records = (result.items || []) as MessageChatVO[]
+    const older = records
+      .filter(m => otherUserId.value
+        ? (m.senderId === otherUserId.value || m.receiverId === otherUserId.value)
+        : true)
+      .reverse()
+      .map(toDisplay)
+    chatMessages.value.unshift(...older)
+    nextCursor.value = result.nextCursor || undefined
+    hasMore.value = result.hasMore ?? false
+    await nextTick()
+    if (messageListRef.value) {
+      messageListRef.value.scrollTop = messageListRef.value.scrollHeight - prevHeight
+    }
+  } catch (e) { console.error('loadMore failed', e) }
+  finally { loadingMore.value = false }
+}
+
+// 处理聊天列表滚动。
+const onScroll = () => {
+  if (messageListRef.value && messageListRef.value.scrollTop < 50) loadMore()
+}
+
+// 发送聊天消息。
 const sendMessage = () => {
   const content = messageInput.value.trim()
-  if (!content) return
-  if (!wsStore.connected) return
-
-  const receiverId = otherUserId.value || chatNickname.value
-  const sent = wsStore.sendChat(userStore.userId, receiverId, content)
-
+  if (!content || !otherUserId.value) return
+  const sent = wsStore.sendChat(userStore.userId, otherUserId.value, content)
   if (sent) {
-    chatMessages.value.push({
-      id: `local-${Date.now()}`,
-      sender: 'me',
-      content,
-      time: getCurrentTime(),
-    })
+    chatMessages.value.push({ id: `local-${Date.now()}`, sender: 'me', content, time: formatTime() })
     messageInput.value = ''
     scrollToBottom()
   }
 }
 
+// 处理 WebSocket 消息。
 const handleWsMessage = (msg: WsMessage) => {
   if (msg.type !== 'CHAT') return
-
-  // 判断是否属于当前会话
-  const otherId = otherUserId.value || chatNickname.value
-  if (msg.senderId !== otherId && msg.receiverId !== otherId) return
-
+  if (!otherUserId.value) return
+  if (msg.senderId !== otherUserId.value && msg.receiverId !== otherUserId.value) return
   chatMessages.value.push({
     id: `ws-${msg.timestamp}`,
     sender: msg.senderId === userStore.userId ? 'me' : 'other',
-    content: msg.data || '',
-    time: formatMsgTime(new Date(msg.timestamp).toISOString()),
+    content: typeof msg.data === 'string' ? msg.data : '',
+    time: formatTime(new Date(msg.timestamp).toISOString()),
   })
   scrollToBottom()
 }
 
-const getCurrentTime = () => {
-  const now = new Date()
-  const hours = String(now.getHours()).padStart(2, '0')
-  const minutes = String(now.getMinutes()).padStart(2, '0')
-  return `${hours}:${minutes}`
+// 格式化时间显示。
+const formatTime = (t?: string) => {
+  const d = t ? new Date(t) : new Date()
+  return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`
 }
 
-const formatMsgTime = (timeStr: string) => {
-  if (!timeStr) return getCurrentTime()
-  try {
-    const d = new Date(timeStr)
-    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
-  } catch {
-    return timeStr
-  }
-}
-
-const scrollToBottom = () => {
-  nextTick(() => {
-    if (messageListRef.value) {
-      messageListRef.value.scrollTop = messageListRef.value.scrollHeight
-    }
-  })
-}
+// 滚动到消息列表底部。
+const scrollToBottom = () => { nextTick(() => { if (messageListRef.value) messageListRef.value.scrollTop = messageListRef.value.scrollHeight }) }
 
 onMounted(() => {
-  if (userStore.token) {
-    wsStore.connect(userStore.token)
-  }
-
+  if (!wsStore.connected) wsStore.connect()
   removeListener = wsStore.addListener(handleWsMessage)
+  loadUserBrief()
   fetchHistory()
   scrollToBottom()
 })
 
 onUnmounted(() => {
-  if (removeListener) {
-    removeListener()
-    removeListener = null
-  }
+  if (removeListener) removeListener()
+  const sid = route.query.sessionId as string
+  if (sid) clearUnreadApi(sid).catch(() => {})
 })
 </script>
 
 <style scoped>
 .chat-page {
   height: 100%;
-  min-height: 100%;
   display: flex;
   flex-direction: column;
-  background-color: #f5f5f5;
+  background: #f5f5f5;
 }
-
 .chat-header {
   height: 52px;
   flex-shrink: 0;
@@ -207,25 +206,20 @@ onUnmounted(() => {
   padding: 0 18px;
   background-image: linear-gradient(90deg, #0af, #0085ff);
 }
-
 .chat-header h2 {
   margin: 0;
-  max-width: 80%;
-  color: #ffffff;
+  color: #fff;
   font-size: 20px;
-  font-weight: 600;
+  max-width: 80%;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-
 .chat-message-list {
   flex: 1;
-  min-height: 0;
   overflow-y: auto;
   padding: 14px 12px;
 }
-
 .loading-state {
   display: flex;
   align-items: center;
@@ -233,81 +227,66 @@ onUnmounted(() => {
   padding: 20px;
   color: #999;
   gap: 8px;
-  font-size: 14px;
 }
-
 .empty-chat {
   padding-top: 40px;
 }
-
 .chat-message {
   display: flex;
   align-items: flex-start;
   gap: 8px;
   margin-bottom: 14px;
 }
-
 .chat-message.is-me {
   flex-direction: row-reverse;
 }
-
 .message-avatar {
   flex-shrink: 0;
-  background-color: #f2f2f2;
+  background: #f2f2f2;
 }
-
 .message-body {
   max-width: 72%;
   display: flex;
   flex-direction: column;
   gap: 5px;
 }
-
 .chat-message.is-me .message-body {
   align-items: flex-end;
 }
-
 .message-time {
-  color: #999999;
+  color: #999;
   font-size: 11px;
-  line-height: 1;
 }
-
 .message-body p {
   margin: 0;
   padding: 9px 11px;
   border-radius: 8px;
-  color: #222222;
   font-size: 14px;
   line-height: 1.45;
+  background: #fff;
+  color: #222;
   word-break: break-word;
-  background-color: #ffffff;
 }
-
 .chat-message.is-me .message-body p {
-  color: #ffffff;
-  background-color: #0085ff;
+  background: #0085ff;
+  color: #fff;
 }
-
 .chat-input-bar {
   flex-shrink: 0;
   display: flex;
   align-items: center;
   gap: 8px;
   padding: 10px;
-  background-color: #ffffff;
+  background: #fff;
   border-top: 1px solid #e8e8e8;
 }
-
 .chat-input-bar :deep(.el-input__wrapper) {
   border-radius: 18px;
 }
-
 .chat-input-bar :deep(.el-button) {
   margin-left: 0;
   border-radius: 18px;
 }
-
 .ws-status {
   position: fixed;
   bottom: 65px;
@@ -315,8 +294,8 @@ onUnmounted(() => {
   transform: translateX(-50%);
   background: #fdf6ec;
   color: #e6a23c;
-  padding: 6px 16px;
-  border-radius: 20px;
+  padding: 4px 12px;
+  border-radius: 12px;
   font-size: 13px;
   z-index: 100;
 }

@@ -3,154 +3,166 @@
     <header class="order-header">
       <h2>订单</h2>
     </header>
-
-    <section class="status-section">
-      <el-radio-group v-model="activeStatus" size="large" class="status-group" @change="fetchOrders">
-        <el-radio-button
-          v-for="status in statusOptions"
-          :key="status.value"
-          :value="status.value"
-        >
-          {{ status.label }}
-        </el-radio-button>
-      </el-radio-group>
+    <section class="role-section">
+      <div class="role-tabs">
+        <span
+          v-for="r in roles"
+          :key="r.value"
+          class="role-item"
+          :class="{ active: activeRole === r.value }"
+          @click="switchRole(r.value)"
+        >{{ r.label }}</span>
+      </div>
     </section>
-
+    <section class="status-section">
+      <el-select v-model="activeStatus" placeholder="订单状态" size="small" @change="switchStatus">
+        <el-option v-for="s in statusOptions" :key="s.value" :label="s.label" :value="s.value" />
+      </el-select>
+    </section>
+    <div v-if="total > pageSize" class="pagination-wrap">
+      <el-pagination
+        size="small" background
+        v-model:current-page="currentPage"
+        :page-size="pageSize" :pager-count="5"
+        :total="total"
+        layout="prev, pager, next"
+        @current-change="fetchOrders"
+      />
+    </div>
     <section class="order-section">
       <div v-if="loading" class="loading-state">
-        <el-icon class="is-loading" size="20"><Loading /></el-icon>
+        <el-icon class="is-loading" size="24"><Loading /></el-icon>
         <span>订单加载中...</span>
       </div>
 
-      <el-empty
-        v-else-if="orders.length === 0"
-        description="暂无订单"
-        :image-size="90"
-      />
+      <el-empty v-else-if="orders.length === 0" description="暂无订单" :image-size="90" />
 
-      <el-collapse v-else v-model="openedOrders" class="order-list">
-        <el-collapse-item
-          v-for="order in orders"
-          :key="order.orderId"
-          :name="order.orderId"
-        >
-          <template #title>
-            <div class="order-title">
-              <div class="order-title-main">
-                <strong>{{ order.shopName }}</strong>
-                <span>{{ formatTime(order.createTime) }}</span>
-              </div>
-              <el-tag size="small" :type="statusTagType(order.status)" effect="plain">
-                {{ statusText(order.status) }}
-              </el-tag>
-            </div>
-          </template>
-
-          <div class="order-detail">
-            <div class="detail-row">
-              <span>订单编号</span>
-              <strong>{{ order.orderId }}</strong>
-            </div>
-            <div class="detail-row">
-              <span>收货人</span>
-              <strong>{{ order.receiverName }}</strong>
-            </div>
-            <div class="detail-row">
-              <span>联系电话</span>
-              <strong>{{ order.receiverPhone }}</strong>
-            </div>
-            <div class="detail-row">
-              <span>配送地址</span>
-              <strong>{{ order.receiverAddress }}</strong>
-            </div>
-
-            <div class="goods-list">
-              <div
-                v-for="item in order.items"
-                :key="item.itemId"
-                class="goods-row"
-              >
-                <span>{{ item.name }} x{{ item.quantity }}</span>
-                <strong>&yen;{{ item.amount.toFixed(2) }}</strong>
-              </div>
-            </div>
-
-            <div class="detail-row total-row">
-              <span>合计（含配送费 &yen;{{ order.deliveryFee }}）</span>
-              <strong>&yen;{{ order.amount.toFixed(2) }}</strong>
-            </div>
-
-            <p v-if="order.remark" class="remark">备注：{{ order.remark }}</p>
-
-            <!-- 操作按钮 -->
-            <div class="order-actions" v-if="orderActions(order.status).length > 0">
-              <el-button
-                v-for="action in orderActions(order.status)"
-                :key="action.key"
-                :type="action.type"
-                size="small"
-                @click="handleAction(order, action.key)"
-              >
-                {{ action.label }}
-              </el-button>
-            </div>
-
-            <!-- 评价表单 -->
-            <div v-if="reviewOrderId === order.orderId" class="review-form">
-              <el-rate v-model="reviewScore" show-score />
-              <el-input
-                v-model="reviewContent"
-                type="textarea"
-                :rows="2"
-                placeholder="写下你的评价..."
-              />
-              <el-button
-                type="primary"
-                size="small"
-                :loading="reviewSubmitting"
-                @click="submitReview(order.orderId)"
-              >
-                提交评价
-              </el-button>
+      <div v-else class="order-list">
+        <div v-for="order in orders" :key="order.orderId" class="order-card" @click="toggleOrder(order.orderId)">
+          <div class="order-top">
+            <strong>{{ order.shopName }}</strong>
+            <div class="order-top-right">
+              <span v-if="order.status === 0 && order.expireTime" class="expire-countdown">{{ countdownText[order.orderId] }}</span>
+              <el-tag size="small" :color="statusColor(order.status)" effect="dark" style="border:none">{{ OrderStatusText[order.status] || '未知' }}</el-tag>
             </div>
           </div>
-        </el-collapse-item>
-      </el-collapse>
+          <div class="order-items">
+            <span v-for="item in order.items" :key="item.itemId">{{ item.name }} x{{ item.quantity }}</span>
+          </div>
+          <div class="order-bottom">
+            <span class="order-time">{{ formatTime(order.createTime) }}</span>
+            <strong class="order-amount">&yen;{{ order.amount.toFixed(2) }}</strong>
+          </div>
+    <div v-if="expandedId === order.orderId" class="order-detail">
+            <div class="detail-row"><span>订单编号</span><strong>{{ order.orderId }}</strong></div>
+            <div class="detail-row"><span>收货人</span><strong>{{ order.receiverName }} {{ order.receiverPhone }}</strong></div>
+            <div class="detail-row"><span>地址</span>
+              <el-tooltip :content="order.receiverAddress" placement="top" :show-after="400">
+                <strong class="text-ellipsis">{{ order.receiverAddress }}</strong>
+              </el-tooltip>
+            </div>
+            <div class="detail-row" v-if="order.remark"><span>备注</span>
+              <el-tooltip :content="order.remark" placement="top" :show-after="400">
+                <strong class="text-ellipsis">{{ order.remark }}</strong>
+              </el-tooltip>
+            </div>
+            <div class="detail-divider"></div>
+            <div class="detail-row" v-for="item in order.items" :key="item.itemId">
+              <span>{{ item.name }} x{{ item.quantity }}</span>
+              <strong>&yen;{{ item.amount.toFixed(2) }}</strong>
+            </div>
+            <div class="detail-row total"><span>合计（含配送 &yen;{{ order.deliveryFee }}）</span><strong>&yen;{{ order.amount.toFixed(2) }}</strong></div>
+            <div class="detail-contact">
+              <el-button size="small" plain @click="contactChat(order.userId)">联系用户</el-button>
+              <el-button size="small" plain @click="contactChat(order.shopOwnerId)">联系商家</el-button>
+              <el-button size="small" plain @click="contactChat(order.riderId)">联系骑手</el-button>
+            </div>
+            <div class="detail-actions" v-if="getActions(order).length > 0">
+              <el-button
+                v-for="act in getActions(order)"
+                :key="act.key"
+                size="small"
+                :type="act.type"
+                @click="handleAction(order, act.key)"
+              >{{ act.label }}</el-button>
+            </div>
+          </div>
+        </div>
+      </div>
     </section>
+    <el-dialog v-model="reviewVisible" title="评价订单" width="90%">
+      <el-form label-position="top" size="default">
+        <el-form-item label="评分">
+          <el-rate v-model="reviewScore" show-score :max="5" allow-half />
+        </el-form-item>
+        <el-form-item label="评价内容">
+          <el-input v-model="reviewContent" type="textarea" :rows="3" placeholder="写下你的评价..." />
+        </el-form-item>
+        <el-form-item label="图片（最多5张）">
+          <div class="review-imgs">
+            <div v-for="(img, i) in reviewImages" :key="i" class="review-img-wrap">
+              <el-image :src="img" fit="cover" class="review-upload-img" />
+              <el-icon class="review-img-del" @click="reviewImages.splice(i, 1)"><CircleCloseFilled /></el-icon>
+            </div>
+            <div v-if="reviewImages.length < 5" class="review-upload-btn" @click="triggerReviewImg">
+              <el-icon size="24"><Plus /></el-icon>
+            </div>
+            <input ref="reviewImgInputRef" type="file" accept="image/*" style="display:none" @change="onReviewImgChange" />
+          </div>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="reviewVisible = false">取消</el-button>
+        <el-button type="primary" :loading="reviewSubmitting" @click="submitReview">提交评价</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="payVisible" :title="payStep === 'qrcode' ? '支付宝支付' : '选择支付方式'" width="300px" :close-on-click-modal="false" align-center>
+      <div v-if="payStep === 'choose'" class="pay-choose">
+        <div class="pay-option" @click="doPay('alipay')">
+          <span class="pay-icon alipay"><el-icon size="28"><Money /></el-icon></span>
+          <span class="pay-label">支付宝支付</span>
+        </div>
+        <div class="pay-option" @click="doPay('wallet')">
+          <span class="pay-icon wallet"><el-icon size="28"><Wallet /></el-icon></span>
+          <span class="pay-label">钱包支付</span>
+        </div>
+      </div>
+      <div v-else-if="payStep === 'qrcode'" class="pay-qrcode">
+        <img v-if="qrImage" :src="qrImage" class="qr-img" />
+        <p class="qr-tip">请使用支付宝扫码支付</p>
+      </div>
+    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { Loading } from '@element-plus/icons-vue'
+import { Loading, Money, Wallet, Plus, CircleCloseFilled } from '@element-plus/icons-vue'
+import {
+  listUserOrdersApi, listShopOwnerOrdersApi, listRiderOrdersApi,
+  OrderStatusText, type OrderVO,
+  payOrderAlipayApi, payOrderWalletApi,
+  merchantAcceptApi, merchantRejectApi,
+  riderAcceptApi, riderArriveApi,
+  cancelOrderApi, createOrderReviewApi,
+} from '@/api/order'
+import { getPaymentStatusApi } from '@/api/payment'
 import { useUserStore } from '@/stores/user'
 import { showErrorMessage } from '@/api/http'
-import {
-  listOrderApi,
-  payOrderAlipayApi,
-  payOrderWalletApi,
-  merchantAcceptApi,
-  merchantRejectApi,
-  riderAcceptApi,
-  riderArriveApi,
-  createOrderReviewApi,
-  OrderStatusText,
-  type OrderVO,
-} from '@/api/order'
+import { uploadImage } from '@/services/fileUpload'
+import { createQrCodeDataUrl } from '@/utils/qrcode'
 
+const router = useRouter()
 const userStore = useUserStore()
 
-const activeStatus = ref<string>('all')
-const loading = ref(false)
-const orders = ref<OrderVO[]>([])
-const openedOrders = ref<string[]>([])
-
-// 评价
-const reviewOrderId = ref('')
-const reviewScore = ref(5)
-const reviewContent = ref('')
-const reviewSubmitting = ref(false)
+const roles = [
+  { label: '用户', value: 'user' },
+  { label: '商家', value: 'merchant' },
+  { label: '骑手', value: 'rider' },
+]
 
 const statusOptions = [
   { label: '全部', value: 'all' },
@@ -160,329 +172,501 @@ const statusOptions = [
   { label: '待送达', value: '3' },
   { label: '待评价', value: '4' },
   { label: '已完成', value: '5' },
+  { label: '已过期', value: '6' },
+  { label: '已取消', value: '7' },
 ]
 
-const statusText = (status: number) => OrderStatusText[status] || '未知'
+const activeRole = ref('user')
+const activeStatus = ref('all')
+const orders = ref<OrderVO[]>([])
+const loading = ref(false)
+const currentPage = ref(1)
+const pageSize = 5
+const total = ref(0)
+const expandedId = ref('')
 
-const statusTagType = (status: number): 'warning' | 'primary' | 'success' | 'danger' | 'info' => {
-  const map: Record<number, string> = {
-    0: 'warning',
-    1: 'danger',
-    2: 'warning',
-    3: 'primary',
-    4: 'primary',
-    5: 'success',
-    6: 'info',
-    7: 'info',
+// 获取订单状态颜色。
+const statusColor = (s: number) => {
+  const m: Record<number, string> = {
+    0: '#e6a23c',   // 待支付 - 橙
+    1: '#f56c6c',   // 待接单 - 红
+    2: '#b88230',   // 待配送 - 棕
+    3: '#409eff',   // 待送达 - 蓝
+    4: '#9b59b6',   // 待评价 - 紫
+    5: '#67c23a',   // 已完成 - 绿
+    6: '#909399',   // 已过期 - 灰
+    7: '#c0c4cc',   // 已取消 - 浅灰
   }
-  return (map[status] || 'info') as 'warning' | 'primary' | 'success' | 'danger' | 'info'
+  return m[s] || '#909399'
 }
 
-interface OrderAction {
-  key: string
-  label: string
-  type: 'primary' | 'success' | 'warning' | 'danger'
+// 切换订单角色。
+const switchRole = (r: string) => {
+  activeRole.value = r; activeStatus.value = 'all'; currentPage.value = 1; fetchOrders()
+}
+// 切换订单状态筛选。
+const switchStatus = () => {
+  currentPage.value = 1; fetchOrders()
+}
+// 切换订单详情展开状态。
+const toggleOrder = (id: string) => {
+  expandedId.value = expandedId.value === id ? '' : id
 }
 
-const orderActions = (status: number): OrderAction[] => {
-  const actions: Record<number, OrderAction[]> = {
-    0: [
-      { key: 'pay-alipay', label: '支付宝支付', type: 'primary' },
-      { key: 'pay-wallet', label: '钱包支付', type: 'success' },
-    ],
-    1: [
-      { key: 'merchant-accept', label: '接单', type: 'success' },
-      { key: 'merchant-reject', label: '拒单', type: 'danger' },
-    ],
-    2: [{ key: 'rider-accept', label: '骑手接单', type: 'primary' }],
-    3: [{ key: 'rider-arrive', label: '确认送达', type: 'success' }],
-    4: [{ key: 'review', label: '评价', type: 'primary' }],
-  }
-  return actions[status] || []
+// 跳转聊天页面。
+const contactChat = (userId: string) => {
+  if (!userId) { ElMessage.warning('暂无对方信息'); return }
+  if (userId === userStore.userId) { ElMessage.warning('不能和自己聊天'); return }
+  router.push({ path: '/chat', query: { userId } })
 }
 
-const fetchOrders = async () => {
-  if (!userStore.token) return
-
-  loading.value = true
-  try {
-    const params: { status?: number; page?: number; size?: number } = { size: 50 }
-    if (activeStatus.value !== 'all') {
-      params.status = Number(activeStatus.value)
+interface ActionItem { key: string; label: string; type: 'primary' | 'success' | 'warning' | 'danger' }
+const getActions = (order: OrderVO): ActionItem[] => {
+  const role = activeRole.value; const s = order.status
+  const actions: ActionItem[] = []
+  if (role === 'user') {
+    if (s === 0 && order.expireTime && new Date(order.expireTime).getTime() > Date.now()) {
+      actions.push(
+        { key: 'pay', label: '支付订单', type: 'primary' },
+        { key: 'cancel', label: '取消订单', type: 'warning' },
+      )
     }
-    const result = await listOrderApi(params, userStore.token)
-    orders.value = result.records || []
-  } catch (error) {
-    showErrorMessage(error)
-  } finally {
-    loading.value = false
+    if (s === 4) actions.push({ key: 'review', label: '评价订单', type: 'primary' })
   }
+  if (role === 'merchant') {
+    if (s === 1) actions.push(
+      { key: 'accept', label: '商家接单', type: 'success' },
+      { key: 'reject', label: '商家拒单', type: 'danger' },
+    )
+  }
+  if (role === 'rider') {
+    if (s === 2) actions.push({ key: 'rider-accept', label: '骑手接单', type: 'primary' })
+    if (s === 3) actions.push({ key: 'rider-arrive', label: '确认送达', type: 'success' })
+  }
+  if (s === 3 && role !== 'rider') actions.push({ key: 'rider-location', label: '骑手位置', type: 'primary' })
+  return actions
 }
 
+const payVisible = ref(false)
+const payStep = ref<'choose' | 'qrcode'>('choose')
+const payingOrderId = ref('')
+const qrImage = ref('')
+const pollingStatus = ref('')
+let pollTimer: number | undefined
+
+// 处理订单操作。
 const handleAction = async (order: OrderVO, action: string) => {
-  const token = userStore.token
-  if (!token) {
-    ElMessage.warning('请先登录')
+  if (action === 'pay') {
+    payingOrderId.value = order.orderId
+    payStep.value = 'choose'
+    payVisible.value = true
     return
   }
-
+  if (action === 'review') {
+    payingOrderId.value = order.orderId
+    reviewScore.value = 5
+    reviewContent.value = ''
+    reviewImages.value = []
+    reviewVisible.value = true
+    return
+  }
   try {
     switch (action) {
-      case 'pay-alipay': {
-        const result = await payOrderAlipayApi(order.orderId, token)
-        ElMessage.success(`支付订单已创建，请扫码支付：${result.payUrl}`)
-        break
-      }
-      case 'pay-wallet':
-        await payOrderWalletApi(order.orderId, token)
-        ElMessage.success('支付成功')
-        break
-      case 'merchant-accept':
-        await merchantAcceptApi(order.orderId, token)
-        ElMessage.success('已接单')
-        break
-      case 'merchant-reject':
-        await merchantRejectApi(order.orderId, token)
-        ElMessage.success('已拒单')
-        break
-      case 'rider-accept':
-        await riderAcceptApi(order.orderId, token)
-        ElMessage.success('已接单')
-        break
-      case 'rider-arrive':
-        await riderArriveApi(order.orderId, token)
-        ElMessage.success('已确认送达')
-        break
-      case 'review':
-        reviewOrderId.value = order.orderId
-        reviewScore.value = 5
-        reviewContent.value = ''
-        break
+      case 'accept': await merchantAcceptApi(order.orderId, ''); break
+      case 'reject': await merchantRejectApi(order.orderId, ''); break
+      case 'rider-accept': await riderAcceptApi(order.orderId, ''); break
+      case 'rider-arrive': await riderArriveApi(order.orderId, ''); break
+      case 'cancel': await cancelOrderApi(order.orderId, ''); break
     }
     fetchOrders()
-  } catch (error) {
-    showErrorMessage(error)
-  }
+  } catch (e) { showErrorMessage(e) }
 }
 
-const submitReview = async (orderId: string) => {
-  if (!userStore.token) return
+// 发起订单支付。
+const doPay = async (method: 'alipay' | 'wallet') => {
+  try {
+    if (method === 'wallet') {
+      await payOrderWalletApi(payingOrderId.value, '')
+      payVisible.value = false
+      fetchOrders()
+      return
+    }
+    // 支付宝支付
+    const result = await payOrderAlipayApi(payingOrderId.value, '')
+    qrImage.value = await createQrCodeDataUrl(result.payUrl)
+    payStep.value = 'qrcode'
+    startPollPayment(result.paymentId)
+  } catch (e) { showErrorMessage(e) }
+}
+
+watch(payVisible, (v) => { if (!v) stopPollPayment() })
+
+// 启动支付状态轮询。
+const startPollPayment = (paymentId: string) => {
+  stopPollPayment()
+  pollingStatus.value = '等待支付...'
+  pollTimer = window.setInterval(async () => {
+    try {
+      const r = await getPaymentStatusApi(paymentId, '')
+      if (r.status !== 0) {
+        stopPollPayment()
+        if (r.status === 1) { pollingStatus.value = '支付成功！'; setTimeout(() => { payVisible.value = false; fetchOrders() }, 1500) }
+        else if (r.status === 2) pollingStatus.value = '支付已过期'
+        else if (r.status === 3) pollingStatus.value = '订单已取消'
+        else pollingStatus.value = '状态异常'
+      } else { pollingStatus.value = '等待支付...' }
+    } catch { pollingStatus.value = '查询状态失败' }
+  }, 2000)
+}
+
+// 停止支付状态轮询。
+const stopPollPayment = () => {
+  if (pollTimer) { clearInterval(pollTimer); pollTimer = undefined }
+}
+
+// 评价
+const reviewVisible = ref(false)
+const reviewScore = ref(5)
+const reviewContent = ref('')
+const reviewImages = ref<string[]>([])
+const reviewSubmitting = ref(false)
+const reviewImgInputRef = ref<HTMLInputElement | null>(null)
+
+// 触发评价图片选择。
+const triggerReviewImg = () => reviewImgInputRef.value?.click()
+// 处理评价图片选择。
+const onReviewImgChange = async (e: Event) => {
+  const input = e.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file) return
+  const result = await uploadImage(file, '')
+  if (result) reviewImages.value.push(result.url)
+  input.value = ''  // 重置，允许再次选择同一文件
+}
+
+// 提交订单评价。
+const submitReview = async () => {
+  if (!reviewContent.value.trim()) { showErrorMessage(new Error('请填写评价内容')); return }
   reviewSubmitting.value = true
   try {
-    await createOrderReviewApi(
-      orderId,
-      { score: reviewScore.value, content: reviewContent.value },
-      userStore.token
-    )
+    await createOrderReviewApi(payingOrderId.value, {
+      score: reviewScore.value,
+      content: reviewContent.value.trim(),
+      images: reviewImages.value,
+    }, '')
     ElMessage.success('评价成功')
-    reviewOrderId.value = ''
+    reviewVisible.value = false
     fetchOrders()
-  } catch (error) {
-    showErrorMessage(error)
-  } finally {
-    reviewSubmitting.value = false
-  }
+  } catch (e) { showErrorMessage(e) }
+  finally { reviewSubmitting.value = false }
 }
 
-const formatTime = (timeStr: string) => {
-  if (!timeStr) return ''
+// 加载订单列表。
+const fetchOrders = async () => {
+  loading.value = true
   try {
-    const d = new Date(timeStr)
-    const now = new Date()
-    const diff = now.getTime() - d.getTime()
-    if (diff < 86400000) return `今天 ${d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}`
-    if (diff < 172800000) return `昨天 ${d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}`
-    return `${d.getMonth() + 1}月${d.getDate()}日 ${d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}`
-  } catch {
-    return timeStr
-  }
+    const params: any = { page: currentPage.value, size: pageSize }
+    if (activeStatus.value !== 'all') params.status = Number(activeStatus.value)
+    const api = activeRole.value === 'merchant' ? listShopOwnerOrdersApi : activeRole.value === 'rider' ? listRiderOrdersApi : listUserOrdersApi
+    const result = await api(params, '')
+    orders.value = result.records || []
+    total.value = result.total > 0 ? result.total : ((result.records?.length === pageSize) ? currentPage.value * pageSize + 1 : (currentPage.value - 1) * pageSize + (result.records?.length || 0))
+  } catch (e) { showErrorMessage(e) }
+  finally { loading.value = false }
 }
 
-onMounted(fetchOrders)
+// 格式化时间显示。
+const formatTime = (t: string) => {
+  if (!t) return ''
+  try { const d = new Date(t); return `${d.getMonth() + 1}月${d.getDate()}日 ${d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}` }
+  catch { return t }
+}
+
+const now = ref(Date.now())
+const countdownText = computed(() => {
+  const m: Record<string, string> = {}
+  for (const o of orders.value) {
+    if (o.status !== 0 || !o.expireTime) continue
+    const left = new Date(o.expireTime).getTime() - now.value
+    if (left <= 0) m[o.orderId] = '已过期'
+    else {
+      const min = Math.floor(left / 60000)
+      const sec = Math.floor((left % 60000) / 1000)
+      m[o.orderId] = `${min}:${String(sec).padStart(2, '0')}`
+    }
+  }
+  return m
+})
+
+let countdownTimer: number | undefined
+onMounted(() => {
+  fetchOrders()
+  countdownTimer = window.setInterval(() => { now.value = Date.now() }, 1000)
+})
+onUnmounted(() => { if (countdownTimer) clearInterval(countdownTimer); stopPollPayment() })
 </script>
 
 <style scoped>
 .order-page {
   min-height: 100%;
-  background-color: #f5f5f5;
+  background: #f5f5f5;
   padding-bottom: 18px;
 }
-
 .order-header {
   height: 52px;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 0 18px;
   background-image: linear-gradient(90deg, #0af, #0085ff);
 }
-
 .order-header h2 {
   margin: 0;
-  color: #ffffff;
+  color: #fff;
   font-size: 20px;
   font-weight: 600;
 }
 
-.status-section {
-  padding: 12px;
-  background-color: #ffffff;
+.role-section {
+  background: #fff;
 }
-
-.status-group {
-  width: 100%;
+.role-tabs {
   display: flex;
-  flex-wrap: wrap;
-  gap: 0;
+  padding: 0 12px;
 }
-
-.status-group :deep(.el-radio-button) {
+.role-item {
   flex: 1;
-  min-width: 0;
+  text-align: center;
+  padding: 14px 0;
+  font-size: 15px;
+  color: #666;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: .2s;
+}
+.role-item.active {
+  color: #0085ff;
+  border-bottom-color: #0085ff;
+  font-weight: 600;
 }
 
-.status-group :deep(.el-radio-button__inner) {
-  width: 100%;
-  padding: 8px 4px;
-  font-size: 12px;
-}
-
-.loading-state {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 40px;
-  color: #999;
-  gap: 8px;
-  font-size: 14px;
+.status-section {
+  background: #fff;
+  border-top: 1px solid #f0f0f0;
+  padding: 10px 12px;
 }
 
 .order-section {
   padding: 12px;
 }
-
-.order-list {
-  border: none;
-  background-color: transparent;
-}
-
-.order-list :deep(.el-collapse-item) {
-  margin-bottom: 10px;
-  overflow: hidden;
-  border-radius: 8px;
-  background-color: #ffffff;
-}
-
-.order-list :deep(.el-collapse-item__header) {
-  height: auto;
-  min-height: 72px;
-  padding: 12px;
-  border-bottom: none;
-}
-
-.order-list :deep(.el-collapse-item__wrap) {
-  border-bottom: none;
-}
-
-.order-list :deep(.el-collapse-item__content) {
-  padding: 0 12px 14px;
-}
-
-.order-title {
-  width: 100%;
-  min-width: 0;
+.loading-state {
   display: flex;
+  flex-direction: column;
   align-items: center;
+  padding: 40px;
+  color: #999;
   gap: 10px;
 }
 
-.order-title-main {
-  min-width: 0;
-  flex: 1;
+.order-card {
+  background: #fff;
+  border-radius: 8px;
+  padding: 14px;
+  margin-bottom: 10px;
+  cursor: pointer;
+  outline: none;
+}
+.order-card :deep(.el-tag) {
+  border: none;
+}
+.order-top {
   display: flex;
-  flex-direction: column;
-  gap: 7px;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.order-top strong {
+  font-size: 16px;
+  color: #333;
+}
+.order-top-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.expire-countdown {
+  font-size: 13px;
+  color: #ff5339;
+  font-weight: 600;
+}
+.order-items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-bottom: 8px;
+}
+.order-items span {
+  font-size: 13px;
+  color: #666;
+}
+.order-bottom {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.order-time {
+  font-size: 12px;
+  color: #999;
+}
+.order-amount {
+  font-size: 16px;
+  color: #ff5339;
 }
 
-.order-title-main strong {
-  color: #222222;
-  font-size: 16px;
-  font-weight: 600;
-  line-height: 1.2;
+.order-detail {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #f0f0f0;
+}
+.detail-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 4px 0;
+  font-size: 13px;
+  color: #666;
+}
+.detail-row strong {
+  color: #333;
+  text-align: right;
+}
+.text-ellipsis {
+  display: block;
+  max-width: 200px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-
-.order-title-main span {
-  color: #999999;
-  font-size: 12px;
-  line-height: 1.2;
+.detail-divider {
+  border-top: 1px dashed #eee;
+  margin: 6px 0;
 }
-
-.order-detail {
-  padding-top: 2px;
-  border-top: 1px solid #f0f0f0;
+.detail-row.total {
+  font-size: 15px;
 }
-
-.detail-row,
-.goods-row {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  padding-top: 10px;
-  color: #666666;
-  font-size: 13px;
-  line-height: 1.4;
-}
-
-.detail-row span,
-.goods-row span {
-  flex-shrink: 0;
-}
-
-.detail-row strong,
-.goods-row strong {
-  min-width: 0;
-  color: #333333;
-  font-weight: 500;
-  text-align: right;
-  word-break: break-all;
-}
-
-.goods-list {
-  margin-top: 10px;
-  padding-top: 2px;
-  border-top: 1px dashed #e6e6e6;
-}
-
-.total-row strong {
+.detail-row.total strong {
   color: #ff5339;
-  font-size: 17px;
   font-weight: 700;
 }
-
-.remark {
-  margin: 12px 0 0;
-  padding: 9px 10px;
-  border-radius: 6px;
-  background-color: #f7f8fa;
-  color: #777777;
-  font-size: 13px;
-  line-height: 1.45;
-}
-
-.order-actions {
-  margin-top: 12px;
+.detail-actions {
   display: flex;
   gap: 8px;
-  flex-wrap: wrap;
+  margin-top: 10px;
+}
+.detail-contact {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+.detail-contact .el-button,
+.detail-actions .el-button {
+  flex: 1;
 }
 
-.review-form {
-  margin-top: 12px;
+.pagination-wrap {
+  display: flex;
+  justify-content: center;
+  padding: 8px 0;
+}
+
+.pay-choose {
   display: flex;
   flex-direction: column;
+  gap: 12px;
+}
+.pay-option {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px 20px;
+  border: 1px solid #e5e5e5;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: .2s;
+}
+.pay-option:hover {
+  border-color: #0085ff;
+  background: #f5f9ff;
+}
+.pay-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+}
+.pay-icon.alipay {
+  background: #1677ff;
+}
+.pay-icon.wallet {
+  background: #67c23a;
+}
+.pay-label {
+  font-size: 16px;
+  font-weight: 600;
+  color: #333;
+}
+.pay-qrcode {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+.qr-img {
+  width: 200px;
+  height: 200px;
+}
+.qr-tip {
+  font-size: 14px;
+  color: #666;
+  margin: 0;
+}
+
+.review-imgs {
+  display: flex;
+  flex-wrap: wrap;
   gap: 8px;
+}
+.review-img-wrap {
+  position: relative;
+  width: 72px;
+  height: 72px;
+  border-radius: 6px;
+  overflow: hidden;
+}
+.review-upload-img {
+  width: 100%;
+  height: 100%;
+}
+.review-img-del {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  color: #f56c6c;
+  cursor: pointer;
+  font-size: 16px;
+  background: #fff;
+  border-radius: 50%;
+}
+.review-upload-btn {
+  width: 72px;
+  height: 72px;
+  border: 1px dashed #ddd;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #ccc;
+  cursor: pointer;
 }
 </style>

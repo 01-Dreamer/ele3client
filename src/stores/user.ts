@@ -74,7 +74,7 @@ export const useUserStore = defineStore('user', () => {
 
   const isLoggedIn = computed(() => Boolean(token.value))
   const userId = computed(() => userInfo.value?.userId || '')
-  const nickname = computed(() => userInfo.value?.nickname || userInfo.value?.email || '饿了么用户')
+  const nickname = computed(() => userInfo.value?.nickname || '未设置昵称')
   const avatar = computed(() => userInfo.value?.avatar || '/default-avatar.svg')
 
   const persist = () => {
@@ -87,11 +87,14 @@ export const useUserStore = defineStore('user', () => {
   const startLocationTracking = () => {
     const locationStore = useLocationStore()
     locationStore.startLocationService(() => token.value)
+    // WebSocket 连接
+    import('@/stores/websocket').then(m => { m.useWebsocketStore().connect(token.value) })
   }
 
   const stopLocationTracking = () => {
     const locationStore = useLocationStore()
     locationStore.stopLocationService()
+    import('@/stores/websocket').then(m => { m.useWebsocketStore().disconnect() })
   }
 
   const setLoginState = (nextToken: string, nextUserInfo: UserInfo) => {
@@ -99,6 +102,7 @@ export const useUserStore = defineStore('user', () => {
     userInfo.value = nextUserInfo
     persist()
     startLocationTracking()
+    useLocationStore().ensureSelectedLocation()
   }
 
   const login = async (payload: LoginRequest) => {
@@ -111,6 +115,7 @@ export const useUserStore = defineStore('user', () => {
 
       const data = await loginApi(payload)
       setLoginState(data.token, data.userInfo)
+      await fetchProfile()
     } finally {
       loading.value = false
     }
@@ -165,11 +170,17 @@ export const useUserStore = defineStore('user', () => {
     stopLocationTracking()
     token.value = ''
     userInfo.value = null
-    removeStoredState()
+    // 清除所有 ele3_ 前缀的 localStorage 数据
+    Object.keys(localStorage).forEach(k => { if (k.startsWith('ele3_')) localStorage.removeItem(k) })
   }
 
   if (typeof window !== 'undefined' && token.value) {
     window.setTimeout(startLocationTracking, 0)
+    window.setTimeout(() => {
+      const locationStore = useLocationStore()
+      locationStore.ensureSelectedLocation()
+    }, 0)
+    window.setTimeout(() => { fetchProfile() }, 0)
   }
 
   const logout = async () => {

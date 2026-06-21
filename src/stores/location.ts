@@ -20,7 +20,6 @@ const AMAP_KEY = import.meta.env.VITE_AMAP_KEY
 const AMAP_SERVICE_HOST = import.meta.env.VITE_AMAP_SERVICE_HOST || ''
 
 let amapPromise: Promise<AMapNamespace> | null = null
-let geocoderInstance: any = null
 
 const toCoordinate = (position: GeolocationPosition): Coordinate => ({
   longitude: position.coords.longitude,
@@ -34,78 +33,38 @@ const getBrowserCoordinate = () => {
       reject(new Error('当前浏览器不支持定位'))
       return
     }
-
     navigator.geolocation.getCurrentPosition(
       (position) => resolve(toCoordinate(position)),
       (error) => reject(error),
-      {
-        enableHighAccuracy: true,
-        timeout: 8000,
-        maximumAge: 4000,
-      }
+      { enableHighAccuracy: true, timeout: 8000, maximumAge: 4000 }
     )
   })
 }
 
-const formatCoordinateText = (coordinate: Coordinate | null) => {
-  if (!coordinate) return ''
-  return `${coordinate.longitude.toFixed(6)}, ${coordinate.latitude.toFixed(6)}`
-}
-
 const loadAMap = async () => {
-  if (!AMAP_KEY || typeof window === 'undefined') {
-    return null
-  }
-
-  // 通过代理 serviceHost 访问，nginx 附加 jscode
-  ;(window as Window & {
-    _AMapSecurityConfig?: { serviceHost?: string }
-  })._AMapSecurityConfig = {
+  if (!AMAP_KEY || typeof window === 'undefined') return null
+  ;(window as Window & { _AMapSecurityConfig?: { serviceHost?: string } })._AMapSecurityConfig = {
     serviceHost: AMAP_SERVICE_HOST,
   }
-
   if (!amapPromise) {
-    amapPromise = AMapLoader.load({
-      key: AMAP_KEY,
-      version: '2.0',
-      plugins: ['AMap.Geocoder'],
-    })
+    amapPromise = AMapLoader.load({ key: AMAP_KEY, version: '2.0', plugins: ['AMap.Geocoder'] })
   }
-
   return amapPromise
 }
 
+/** 逆地理编码：坐标 → 地址 */
 const reverseGeocode = async (coordinate: Coordinate) => {
   const AMap = await loadAMap()
-
-  if (!AMap) {
-    throw new Error('高德地图 SDK 未加载')
-  }
-
-  if (!geocoderInstance) {
-    geocoderInstance = new AMap.Geocoder()
-  }
-
+  if (!AMap) throw new Error('高德地图 SDK 未加载')
+  const geocoder = new AMap.Geocoder()
   return new Promise<string>((resolve, reject) => {
-    geocoderInstance.getAddress(
-      [coordinate.longitude, coordinate.latitude],
-      (status: string, result: {
-        info?: string
-        regeocode?: {
-          formattedAddress?: string
-          formatted_address?: string
-        }
-      }) => {
-        const address = result?.regeocode?.formattedAddress || result?.regeocode?.formatted_address || ''
-
-        if (status === 'complete' && address) {
-          resolve(address)
-          return
-        }
-
-        reject(new Error(result?.info || address || '地址解析失败'))
-      }
-    )
+    geocoder.getAddress([coordinate.longitude, coordinate.latitude], (status: string, result: {
+      info?: string; regeocode?: { formattedAddress?: string; formatted_address?: string }
+    }) => {
+      const addr = result?.regeocode?.formattedAddress || result?.regeocode?.formatted_address || ''
+      if (status === 'complete' && addr) resolve(addr)
+      else reject(new Error(result?.info || '地址解析失败'))
+    })
   })
 }
 
@@ -122,165 +81,142 @@ export const useLocationStore = defineStore('location', () => {
   let locationTimer: number | undefined
   let getToken: TokenGetter = () => ''
 
-  const coordinateText = computed(() => formatCoordinateText(currentCoordinate.value))
   const displayAddress = computed(() => currentAddress.value || DEFAULT_ADDRESS)
 
-  const setAddress = (address: string) => {
-    currentAddress.value = address || DEFAULT_ADDRESS
-    lastAddressAt.value = Date.now()
-  }
-
-  const setCoordinate = (coordinate: Coordinate) => {
-    currentCoordinate.value = coordinate
-  }
+  const setAddress = (address: string) => { currentAddress.value = address || DEFAULT_ADDRESS; lastAddressAt.value = Date.now() }
+  const setCoordinate = (coordinate: Coordinate) => { currentCoordinate.value = coordinate }
 
   const refreshAddress = async (coordinate: Coordinate) => {
-    const now = Date.now()
-    addressRefreshing.value = true
-
+    const now = Date.now(); addressRefreshing.value = true
     try {
       const address = await reverseGeocode(coordinate)
-      if (address) {
-        setAddress(address)
-      } else {
-        currentAddress.value = ADDRESS_FAILED
-        lastAddressAt.value = now
-      }
-    } catch {
-      currentAddress.value = ADDRESS_FAILED
-      lastAddressAt.value = now
-    } finally {
-      addressRefreshing.value = false
-    }
+      if (address) setAddress(address)
+      else { currentAddress.value = ADDRESS_FAILED; lastAddressAt.value = now }
+    } catch { currentAddress.value = ADDRESS_FAILED; lastAddressAt.value = now }
+    finally { addressRefreshing.value = false }
   }
 
   const uploadCurrentCoordinate = async (coordinate: Coordinate) => {
     const token = getToken()
-
-    if (!token || !hasApiBaseUrl()) {
-      return
-    }
-
+    if (!token || !hasApiBaseUrl()) return
     uploading.value = true
-
     try {
-      const uploaded = await uploadCoordinateApi(
-        {
-          longitude: coordinate.longitude,
-          latitude: coordinate.latitude,
-        },
-        token
-      )
+      const uploaded = await uploadCoordinateApi({ longitude: coordinate.longitude, latitude: coordinate.latitude }, token)
       setCoordinate(uploaded)
-    } finally {
-      uploading.value = false
-    }
+    } finally { uploading.value = false }
   }
 
   const refreshLocation = async () => {
-    if (locating.value) {
-      return currentCoordinate.value
-    }
-
-    locating.value = true
-    lastError.value = ''
-
+    if (locating.value) return currentCoordinate.value
+    locating.value = true; lastError.value = ''
     try {
-      const coordinate = await getBrowserCoordinate()
-      setCoordinate(coordinate)
-
-      try {
-        await uploadCurrentCoordinate(coordinate)
-      } catch (error) {
-        lastError.value = error instanceof Error ? error.message : '位置上传失败'
-      }
-
+      const coordinate = await getBrowserCoordinate(); setCoordinate(coordinate)
+      try { await uploadCurrentCoordinate(coordinate) } catch (e) { lastError.value = e instanceof Error ? e.message : '位置上传失败' }
       return currentCoordinate.value
-    } catch (error) {
-      lastError.value = error instanceof Error ? error.message : '定位失败'
-      return null
-    } finally {
-      locating.value = false
-    }
+    } catch (e) { lastError.value = e instanceof Error ? e.message : '定位失败'; return null }
+    finally { locating.value = false }
   }
 
   const refreshAddressNow = async () => {
     if (!currentCoordinate.value) {
       addressRefreshing.value = true
-      const coordinate = await refreshLocation()
-
-      if (!coordinate) {
-        addressRefreshing.value = false
-        return currentAddress.value
-      }
+      const coord = await refreshLocation()
+      if (!coord) { addressRefreshing.value = false; return currentAddress.value }
     }
-
-    const coordinate = currentCoordinate.value
-
-    if (!coordinate) {
-      return currentAddress.value
-    }
-
-    await refreshAddress(coordinate)
+    await refreshAddress(currentCoordinate.value!)
     return currentAddress.value
   }
 
   const refreshLocationNow = async () => {
     addressRefreshing.value = true
     const coordinate = await refreshLocation()
-
-    if (coordinate) {
-      await refreshAddress(coordinate)
-    } else {
-      addressRefreshing.value = false
-    }
-
+    if (coordinate) await refreshAddress(coordinate)
+    else addressRefreshing.value = false
     return coordinate
   }
 
   const startLocationService = (tokenGetter?: TokenGetter) => {
-    if (tokenGetter) {
-      getToken = tokenGetter
-    }
-
-    if (typeof window === 'undefined' || serviceStarted.value) {
-      return
-    }
-
+    if (tokenGetter) getToken = tokenGetter
+    if (typeof window === 'undefined' || serviceStarted.value) return
     serviceStarted.value = true
     void refreshLocationNow()
-
-    locationTimer = window.setInterval(() => {
-      void refreshLocation()
-    }, COORDINATE_REFRESH_MS)
+    locationTimer = window.setInterval(() => { void refreshLocation() }, COORDINATE_REFRESH_MS)
   }
 
   const stopLocationService = () => {
-    if (locationTimer) {
-      window.clearInterval(locationTimer)
-      locationTimer = undefined
-    }
+    if (locationTimer) { clearInterval(locationTimer); locationTimer = undefined }
+    serviceStarted.value = false; locating.value = false; uploading.value = false
+  }
 
-    serviceStarted.value = false
-    locating.value = false
-    uploading.value = false
+  /** 正向地理编码：地址 → 经纬度（SDK Geocoder 插件） */
+  const geocodeAddress = async (address: string): Promise<{ longitude: number; latitude: number } | null> => {
+    if (!address) return null
+    const AMap = await loadAMap()
+    if (!AMap) return null
+    const geocoder = new AMap.Geocoder()
+    return new Promise((resolve) => {
+      geocoder.getLocation(address, (status: string, result: {
+        info?: string; geocodes?: { location: { lng: number; lat: number } }[]
+      }) => {
+        if (status === 'complete' && result.geocodes?.[0]?.location) {
+          resolve({ longitude: result.geocodes[0].location.lng, latitude: result.geocodes[0].location.lat })
+        } else { resolve(null) }
+      })
+    })
+  }
+
+  /** 获取当前 GPS 位置 */
+  // ---- 选中的收货地址（存 localStorage） ----
+  const SELECTED_KEY = 'ele3_selected_location'
+
+  const selectedLocation = ref<Record<string, unknown> | null>(null)
+  try {
+    const raw = localStorage.getItem(SELECTED_KEY)
+    if (raw) selectedLocation.value = JSON.parse(raw)
+  } catch { selectedLocation.value = null }
+
+  const saveSelectedLocation = (loc: Record<string, unknown>) => {
+    selectedLocation.value = loc
+    localStorage.setItem(SELECTED_KEY, JSON.stringify(loc))
+  }
+
+  const clearSelectedLocation = () => {
+    selectedLocation.value = null
+    localStorage.removeItem(SELECTED_KEY)
+  }
+
+  /** 无选中时自动从服务端取第一个位置 */
+  const ensureSelectedLocation = async () => {
+    if (selectedLocation.value) return
+    try {
+      const { listUserLocationsApi } = await import('@/api/user')
+      const result = await listUserLocationsApi(1, 1)
+      if (result.items?.length > 0) {
+        saveSelectedLocation(result.items[0] as unknown as Record<string, unknown>)
+      }
+    } catch { /* 静默 */ }
+  }
+
+  const getPositionNow = async () => {
+    await refreshLocationNow()
+    return { coordinate: currentCoordinate.value, address: currentAddress.value }
+  }
+
+  const getDistance = async (lng2: number, lat2: number) => {
+    const coord = currentCoordinate.value
+    if (!coord) return -1
+    const AMap = await loadAMap()
+    if (!AMap?.GeometryUtil) return -1
+    return AMap.GeometryUtil.distance([coord.longitude, coord.latitude], [lng2, lat2]) as number
   }
 
   return {
-    currentAddress,
-    currentCoordinate,
-    coordinateText,
-    displayAddress,
-    locating,
-    addressRefreshing,
-    uploading,
-    serviceStarted,
-    lastError,
-    setAddress,
-    setCoordinate,
-    refreshAddressNow,
-    refreshLocationNow,
-    startLocationService,
-    stopLocationService,
+    currentAddress, currentCoordinate, displayAddress,
+    locating, addressRefreshing, uploading, serviceStarted, lastError,
+    setAddress, setCoordinate,
+    refreshAddressNow, refreshLocationNow,
+    startLocationService, stopLocationService,
+    selectedLocation, saveSelectedLocation, clearSelectedLocation, ensureSelectedLocation,
+    getDistance, geocodeAddress, getPositionNow,
   }
 })

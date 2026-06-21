@@ -52,6 +52,7 @@ export interface OrderCreateRequest {
   receiverAddress: string
   receiverLongitude: number
   receiverLatitude: number
+  token: string
   remark?: string
   items: OrderCreateItem[]
 }
@@ -93,14 +94,39 @@ export const OrderStatusText: Record<number, string> = {
 
 // --- API ---
 
-/** 获取自己的订单列表 */
-export const listOrderApi = (params: { status?: number; page?: number; size?: number }, token: string) => {
+/** 获取自己作为用户的订单列表 */
+export const listUserOrdersApi = (params: { status?: number; page?: number; size?: number }, token: string) => {
   const query = new URLSearchParams()
   if (params.status !== undefined) query.set('status', String(params.status))
   if (params.page !== undefined) query.set('page', String(params.page))
   if (params.size !== undefined) query.set('size', String(params.size))
   const qs = query.toString()
-  return apiRequest<PageVO<OrderVO>>(`/api/order/list-order${qs ? `?${qs}` : ''}`, { token })
+  return apiRequest<PageVO<OrderVO>>(`/api/order/list-order-for-user${qs ? `?${qs}` : ''}`, { token })
+}
+
+/** 获取自己作为商家的订单列表 */
+export const listShopOwnerOrdersApi = (params: { status?: number; page?: number; size?: number }, token: string) => {
+  const query = new URLSearchParams()
+  if (params.status !== undefined) query.set('status', String(params.status))
+  if (params.page !== undefined) query.set('page', String(params.page))
+  if (params.size !== undefined) query.set('size', String(params.size))
+  const qs = query.toString()
+  return apiRequest<PageVO<OrderVO>>(`/api/order/list-order-for-shopowner${qs ? `?${qs}` : ''}`, { token })
+}
+
+/** 获取骑手订单列表 */
+export const listRiderOrdersApi = (params: { status?: number; page?: number; size?: number }, token: string) => {
+  const query = new URLSearchParams()
+  if (params.status !== undefined) query.set('status', String(params.status))
+  if (params.page !== undefined) query.set('page', String(params.page))
+  if (params.size !== undefined) query.set('size', String(params.size))
+  const qs = query.toString()
+  return apiRequest<PageVO<OrderVO>>(`/api/order/list-order-for-rider${qs ? `?${qs}` : ''}`, { token })
+}
+
+/** 获取下单防重 token */
+export const createOrderTokenApi = () => {
+  return apiRequest<{ token: string }>('/api/order/create-order-token', { method: 'POST' })
 }
 
 /** 创建订单 */
@@ -155,6 +181,14 @@ export const riderAcceptApi = (orderId: string, token: string) => {
 /** 骑手送达 */
 export const riderArriveApi = (orderId: string, token: string) => {
   return apiRequest<null>(`/api/order/rider-arrive/${orderId}`, {
+    method: 'POST',
+    token,
+  })
+}
+
+/** 用户取消订单（仅待支付状态） */
+export const cancelOrderApi = (orderId: string, token: string) => {
+  return apiRequest<null>(`/api/order/cancel/${orderId}`, {
     method: 'POST',
     token,
   })

@@ -28,9 +28,7 @@
             placeholder="搜索饿了么商家、商品名称"
             clearable
           />
-
-          <!-- 热搜面板（搜索框为空） -->
-          <transition name="el-fade-in-linear">
+    <transition name="el-fade-in-linear">
             <div class="search-drop-panel" v-if="isSearchFocused && !searchInput">
               <div class="panel-title">热门搜索</div>
               <ul class="panel-list">
@@ -43,9 +41,7 @@
               </ul>
             </div>
           </transition>
-
-          <!-- 搜索建议面板（用户输入时） -->
-          <transition name="el-fade-in-linear">
+    <transition name="el-fade-in-linear">
             <div class="search-drop-panel" v-if="isSearchFocused && searchInput">
               <div class="panel-title">搜索建议</div>
               <ul class="panel-list">
@@ -114,8 +110,6 @@
         筛选<el-icon><Filter /></el-icon>
       </span>
     </div>
-
-    <!-- 加载状态 -->
     <div v-if="shopLoading" class="loading-state">
       <el-icon class="is-loading" size="24"><Loading /></el-icon>
       <span>商家加载中...</span>
@@ -174,7 +168,6 @@
         </div>
       </li>
 
-      <!-- 触底加载哨兵 -->
       <li ref="sentinelRef" class="sentinel">
         <div v-if="shopLoadingMore" class="loading-more">
           <el-icon class="is-loading"><Loading /></el-icon>
@@ -203,6 +196,7 @@ const locationStore = useLocationStore()
 const isLoading = computed(() => locationStore.addressRefreshing)
 const locationText = computed(() => locationStore.displayAddress || '定位中...')
 
+// 刷新首页定位。
 const getLocation = async () => {
   await locationStore.refreshLocationNow()
 }
@@ -215,19 +209,24 @@ const suggestions = ref<string[]>([])
 const suggestLoading = ref(false)
 let suggestTimer: number | undefined
 
-const handleSearchFocus = () => { isSearchFocused.value = true }
+// 处理搜索框聚焦。
+const handleSearchFocus = () => { isSearchFocused.value = true; fetchHotSearch() }
+// 处理搜索框失焦。
 const handleSearchBlur = () => { setTimeout(() => isSearchFocused.value = false, 200) }
+// 执行搜索。
 const searchKey = () => {
   searchQuery.value = searchInput.value
   isSearchFocused.value = false
   resetAndFetch()
 }
+// 点击热门搜索。
 const clickHotSearch = (item: string) => {
   searchInput.value = item
   isSearchFocused.value = false
   searchQuery.value = item
   resetAndFetch()
 }
+// 点击搜索建议。
 const clickSuggest = (item: string) => {
   searchInput.value = item
   isSearchFocused.value = false
@@ -273,6 +272,7 @@ const foodTypes = reactive([
 const sortType = ref<string>('rating')
 const searchQuery = ref('')
 
+// 切换商家排序。
 const handleSort = (type: string) => {
   sortType.value = type
   resetAndFetch()
@@ -295,6 +295,7 @@ const hasMore = ref(true)
 const sentinelRef = ref<HTMLElement | null>(null)
 let sentinelObserver: IntersectionObserver | undefined
 
+// 计算评价平均分。
 const reviewAvg = (score: number | string, count: number | string) => {
   const s = Number(score)
   const c = Number(count)
@@ -302,25 +303,20 @@ const reviewAvg = (score: number | string, count: number | string) => {
   return Math.round((s / c) * 10) / 10 // 保留1位小数，不做四舍五入
 }
 
+// 格式化销量。
 const formatSales = (count: number) => {
   if (count >= 1000) return `${(count / 1000).toFixed(0)}k`
   return String(count)
 }
 
-const buildShopDisplay = (shop: ShopVO): ShopDisplay => {
-  const dist = haversineDistance(
-    locationStore.currentCoordinate?.longitude ?? 0,
-    locationStore.currentCoordinate?.latitude ?? 0,
-    Number(shop.longitude),
-    Number(shop.latitude)
-  )
-  const distText = dist >= 1000 ? `${(dist / 1000).toFixed(1)}km` : `${Math.round(dist)}m`
-  const duration = 15 + Math.floor(dist / 500) * 5 + Math.floor(Math.random() * 10)
-
+const buildShopDisplay = async (shop: ShopVO): Promise<ShopDisplay> => {
+  const dist = await locationStore.getDistance(Number(shop.longitude), Number(shop.latitude))
+  const distText = dist >= 1000 ? `${(dist / 1000).toFixed(1)}km` : dist > 0 ? `${Math.round(dist)}m` : ''
+  const duration = dist > 0 ? Math.max(20, 10 + Math.round(dist / 250)) : 0
   return {
     ...shop,
-    distanceText: dist > 0 ? distText : '',
-    durationText: dist > 0 ? `${duration}分钟` : '',
+    distanceText: distText,
+    durationText: duration > 0 ? `约${duration}分钟` : '',
     promotions: shop.description
       ? [{ color: '#f07373', icon: '减', text: shop.description }]
       : [],
@@ -328,16 +324,6 @@ const buildShopDisplay = (shop: ShopVO): ShopDisplay => {
 }
 
 /** Haversine 大圆距离（单位：米） */
-const haversineDistance = (lng1: number, lat1: number, lng2: number, lat2: number) => {
-  const R = 6371000
-  const toRad = (deg: number) => (deg * Math.PI) / 180
-  const dLat = toRad(lat2 - lat1)
-  const dLng = toRad(lng2 - lng1)
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
-}
 
 const fetchShops = async () => {
   shopLoading.value = true
@@ -350,7 +336,7 @@ const fetchShops = async () => {
       sort: sortType.value as 'distance' | 'rating' | 'sales',
       size: PAGE_SIZE,
     })
-    shops.value = (result.records || []).map(buildShopDisplay)
+    shops.value = await Promise.all((result.records || []).map(buildShopDisplay))
     nextCursor.value = result.nextCursor || undefined
     hasMore.value = result.hasMore ?? false
   } catch (error) {
@@ -360,6 +346,7 @@ const fetchShops = async () => {
   }
 }
 
+// 加载更多数据。
 const loadMore = async () => {
   if (!hasMore.value || shopLoadingMore.value || shopLoading.value) return
   shopLoadingMore.value = true
@@ -373,7 +360,7 @@ const loadMore = async () => {
       cursor: nextCursor.value,
       size: PAGE_SIZE,
     })
-    const newShops = (result.records || []).map(buildShopDisplay)
+    const newShops = await Promise.all((result.records || []).map(buildShopDisplay))
     shops.value.push(...newShops)
     nextCursor.value = result.nextCursor || undefined
     hasMore.value = result.hasMore ?? false
@@ -384,6 +371,7 @@ const loadMore = async () => {
   }
 }
 
+// 重置并重新加载列表。
 const resetAndFetch = () => {
   nextCursor.value = undefined
   hasMore.value = true
@@ -391,6 +379,7 @@ const resetAndFetch = () => {
   fetchShops()
 }
 
+// 设置触底加载观察器。
 const setupSentinel = () => {
   if (!sentinelRef.value) return
   sentinelObserver = new IntersectionObserver((entries) => {
@@ -401,10 +390,12 @@ const setupSentinel = () => {
   sentinelObserver.observe(sentinelRef.value)
 }
 
+// 进入商家详情。
 const clickMerchant = (id: string) => {
   router.push(`/shop/${id}`)
 }
 
+// 加载热门搜索。
 const fetchHotSearch = async () => {
   try {
     const keywords = await listHotSearchApi()

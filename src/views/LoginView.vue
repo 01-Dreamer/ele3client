@@ -134,6 +134,7 @@ const qrScanned = ref(false)
 let qrTimer: number | undefined
 let qrSuccessTimer: number | undefined
 
+// 处理账号密码登录。
 const handleLogin = async () => {
   if (!email.value || !password.value || !captchaCode.value) {
     ElMessage.warning('请输入邮箱、密码和验证码')
@@ -161,6 +162,7 @@ const handleLogin = async () => {
   }
 }
 
+// 加载图形验证码。
 const loadCaptcha = async () => {
   try {
     const captcha = await getImageCaptchaApi()
@@ -171,6 +173,7 @@ const loadCaptcha = async () => {
   }
 }
 
+// 打开校园认证扫码登录。
 const openCampusLogin = async () => {
   qrDialogVisible.value = true
   qrLoading.value = true
@@ -202,6 +205,7 @@ const openCampusLogin = async () => {
   }
 }
 
+// 解析二维码图片内容。
 const resolveQrImage = async (data: unknown) => {
   const image = pickString(data, [
       'qrCode',
@@ -222,12 +226,14 @@ const resolveQrImage = async (data: unknown) => {
   return normalizeQrImage(image)
 }
 
+// 启动二维码轮询。
 const startQrPolling = () => {
   stopQrPolling()
   qrTimer = window.setInterval(pollCampusLogin, 1800)
   pollCampusLogin()
 }
 
+// 停止二维码轮询。
 const stopQrPolling = () => {
   if (qrTimer) {
     window.clearInterval(qrTimer)
@@ -239,6 +245,7 @@ const stopQrPolling = () => {
   }
 }
 
+// 轮询校园扫码登录状态。
 const pollCampusLogin = async () => {
   if (!qrUuid.value) return
 
@@ -307,6 +314,7 @@ const pickString = (value: unknown, keys: string[]): string => {
   return ''
 }
 
+// 标准化二维码图片地址。
 const normalizeQrImage = (image: string) => {
   if (!image) return ''
   if (image.startsWith('data:') || image.startsWith('http://') || image.startsWith('https://')) {
@@ -327,6 +335,7 @@ const hasScannedQr = (value: unknown): boolean => {
   })
 }
 
+// 判断扫码状态文本。
 const hasScannedText = (text: string) => {
   const normalized = text.toLowerCase()
   return [
@@ -344,6 +353,7 @@ const hasScannedText = (text: string) => {
   ].some((keyword) => normalized.includes(keyword.toLowerCase()))
 }
 
+// 获取登录后的跳转地址。
 const getRedirectPath = () => {
   const redirect = route.query.redirect
 

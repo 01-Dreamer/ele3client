@@ -102,6 +102,7 @@ const captchaCountdown = ref(0)
 const sliderVisible = ref(false)
 let countdownTimer: number | undefined
 
+// 提交密码重置。
 const handleReset = async () => {
   if (!email.value || !code.value || !newPassword.value || !confirmPassword.value) {
     ElMessage.warning('请填写完整重置信息')
@@ -131,6 +132,7 @@ const handleReset = async () => {
   }
 }
 
+// 发送邮箱验证码。
 const sendCode = () => {
   if (!email.value) {
     ElMessage.warning('请先输入邮箱')
@@ -140,6 +142,7 @@ const sendCode = () => {
   sliderVisible.value = true
 }
 
+// 处理滑块验证码通过。
 const onSliderSuccess = async (result: { captchaId: string; captchaData: SliderCaptchaTrack }) => {
   sliderVisible.value = false
   codeLoading.value = true
@@ -160,6 +163,7 @@ const onSliderSuccess = async (result: { captchaId: string; captchaData: SliderC
   }
 }
 
+// 启动验证码倒计时。
 const startCountdown = (seconds: number) => {
   captchaCountdown.value = seconds
 
