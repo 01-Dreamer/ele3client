@@ -46,9 +46,8 @@
           </div>
           <div class="shop-info-meta">
             <el-tooltip :content="shop.address" placement="top" :show-after="400">
-              <span class="text-truncate">{{ shop.address }}</span>
+              <span class="text-truncate">{{ shop.address.length > 15 ? shop.address.slice(0, 15) + '...' : shop.address }}</span>
             </el-tooltip>
-            <span>{{ shop.longitude }}, {{ shop.latitude }}</span>
           </div>
         </div>
         <div class="shop-actions">

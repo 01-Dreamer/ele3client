@@ -119,11 +119,11 @@
 
     <el-dialog v-model="payVisible" :title="payStep === 'qrcode' ? '支付宝支付' : '选择支付方式'" width="300px" :close-on-click-modal="false" align-center>
       <div v-if="payStep === 'choose'" class="pay-choose">
-        <div class="pay-option" @click="doPay('alipay')">
+        <div class="pay-option" :class="{ disabled: payLoading }" @click="doPay('alipay')">
           <span class="pay-icon alipay"><el-icon size="28"><Money /></el-icon></span>
           <span class="pay-label">支付宝支付</span>
         </div>
-        <div class="pay-option" @click="doPay('wallet')">
+        <div class="pay-option" :class="{ disabled: payLoading }" @click="doPay('wallet')">
           <span class="pay-icon wallet"><el-icon size="28"><Wallet /></el-icon></span>
           <span class="pay-label">钱包支付</span>
         </div>
@@ -131,6 +131,7 @@
       <div v-else-if="payStep === 'qrcode'" class="pay-qrcode">
         <img v-if="qrImage" :src="qrImage" class="qr-img" />
         <p class="qr-tip">请使用支付宝扫码支付</p>
+        <el-button size="small" :loading="qrRefreshing" @click="refreshQrCode">刷新二维码</el-button>
       </div>
     </el-dialog>
   </div>
@@ -149,7 +150,7 @@ import {
   riderAcceptApi, riderArriveApi,
   cancelOrderApi, createOrderReviewApi,
 } from '@/api/order'
-import { getPaymentStatusApi } from '@/api/payment'
+import { getPaymentStatusApi, refreshAlipayApi } from '@/api/payment'
 import { useUserStore } from '@/stores/user'
 import { showErrorMessage } from '@/api/http'
 import { uploadImage } from '@/services/fileUpload'
@@ -262,6 +263,17 @@ const handleAction = async (order: OrderVO, action: string) => {
     payVisible.value = true
     return
   }
+  if (action === 'rider-location') {
+    router.push({
+      path: '/map',
+      query: {
+        riderId: order.riderId,
+        destLng: String(order.receiverLongitude),
+        destLat: String(order.receiverLatitude),
+      },
+    })
+    return
+  }
   if (action === 'review') {
     payingOrderId.value = order.orderId
     reviewScore.value = 5
@@ -283,7 +295,11 @@ const handleAction = async (order: OrderVO, action: string) => {
 }
 
 // 发起订单支付。
+const payLoading = ref(false)
+
 const doPay = async (method: 'alipay' | 'wallet') => {
+  if (payLoading.value) return
+  payLoading.value = true
   try {
     if (method === 'wallet') {
       await payOrderWalletApi(payingOrderId.value, '')
@@ -297,13 +313,32 @@ const doPay = async (method: 'alipay' | 'wallet') => {
     payStep.value = 'qrcode'
     startPollPayment(result.paymentId)
   } catch (e) { showErrorMessage(e) }
+    finally { payLoading.value = false }
 }
 
 watch(payVisible, (v) => { if (!v) stopPollPayment() })
 
 // 启动支付状态轮询。
+let currentPaymentId = ''
+const qrRefreshing = ref(false)
+
+const refreshQrCode = async () => {
+  if (!currentPaymentId || qrRefreshing.value) return
+  stopPollPayment()
+  qrRefreshing.value = true
+  try {
+    const result = await refreshAlipayApi(currentPaymentId, '')
+    qrImage.value = await createQrCodeDataUrl(result.payUrl)
+    currentPaymentId = result.paymentId
+    startPollPayment(result.paymentId)
+    ElMessage.success('二维码已刷新')
+  } catch (e) { showErrorMessage(e) }
+  finally { qrRefreshing.value = false }
+}
+
 const startPollPayment = (paymentId: string) => {
   stopPollPayment()
+  currentPaymentId = paymentId
   pollingStatus.value = '等待支付...'
   pollTimer = window.setInterval(async () => {
     try {

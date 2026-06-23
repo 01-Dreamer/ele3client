@@ -26,7 +26,11 @@
             :key="index" 
             :class="['message-bubble', msg.role === 'user' ? 'message-user' : 'message-ai']"
           >
-            <div class="message-content">{{ msg.text }}</div>
+            <div v-if="msg.role === 'ai' && msg.text === 'LOADING'" class="message-content message-loading">
+              <span class="loading-dots">...</span>
+            </div>
+            <div v-else-if="msg.role === 'ai'" class="message-content message-md" v-html="renderMarkdown(msg.text)"></div>
+            <div v-else class="message-content">{{ msg.text }}</div>
           </div>
         </div>
         
@@ -99,11 +103,14 @@ import { ElMessage } from 'element-plus'
 import { RouterView, useRouter, useRoute } from 'vue-router'
 import { HomeFilled, Message, Document, User, Cpu, Position } from '@element-plus/icons-vue'
 import GlobalRiskChallenge from '@/components/GlobalRiskChallenge.vue'
-import { chatStreamApi, getChatHistoryApi, type ChatHistoryItem } from '@/api/agent'
-import { getPowResponse } from '@/services/agentPow'
+import { chatStreamApi, getChatHistoryApi, type ChatHistoryItem, type AgentContext } from '@/api/agent'
+import { marked } from 'marked'
+import { useLocationStore } from '@/stores/location'
+import { getPageContext } from '@/services/pageContext'
 
 const router = useRouter()
 const route = useRoute()
+const locationStore = useLocationStore()
 
 // Map routes to nav labels for setting active state
 const isNavActive = (path: string) => {
@@ -119,6 +126,11 @@ const isAiOpen = ref(false)
 const chatInput = ref('')
 const messages = ref<{role: 'user'|'ai'|'tool', text: string}[]>([])
 const messageContainer = ref<HTMLElement | null>(null)
+
+const renderMarkdown = (text: string) => {
+  if (!text) return ''
+  return marked.parse(text) as string
+}
 const loadingHistory = ref(false)
 const historyCursor = ref<string | undefined>(undefined)
 const historyHasMore = ref(true)
@@ -143,7 +155,6 @@ const loadHistory = async () => {
 const toggleAiChat = () => {
   if (!isAiOpen.value) {
     isAiOpen.value = true
-    getPowResponse() // 提前预计算 PoW
     if (messages.value.length === 0) loadHistory()
   }
 }
@@ -163,11 +174,17 @@ const sendMessage = async () => {
   scrollToBottom()
   aiLoading.value = true
 
-  // 预占 AI 回复位置
-  const aiIdx = messages.value.push({ role: 'ai', text: '' }) - 1
+  // 预占 AI 回复位置，显示加载动画
+  const aiIdx = messages.value.push({ role: 'ai', text: 'LOADING' }) - 1
 
   try {
-    const stream = await chatStreamApi(text)
+    const ctx: AgentContext = {
+      longitude: locationStore.currentCoordinate?.longitude,
+      latitude: locationStore.currentCoordinate?.latitude,
+      address: locationStore.currentAddress,
+      pageContext: getPageContext(),
+    }
+    const stream = await chatStreamApi(text, ctx)
     const reader = stream.getReader()
     const decoder = new TextDecoder()
     let buffer = ''
@@ -184,11 +201,12 @@ const sendMessage = async () => {
       for (const part of parts) {
         const lines = part.split('\n')
         let eventType = ''
-        let data = ''
+        let dataLines: string[] = []
         for (const line of lines) {
           if (line.startsWith('event:')) eventType = line.slice(6).trim()
-          else if (line.startsWith('data:')) data = line.slice(5).trim()
+          else if (line.startsWith('data:')) dataLines.push(line.slice(5).trim())
         }
+        const data = dataLines.join('\n')
         if (!data) continue
 
         if (eventType === 'tool_call') {
@@ -390,7 +408,50 @@ const dragEnd = () => {
   border-radius: 8px;
   font-size: 14px;
   line-height: 1.4;
-  word-break: break-well;
+  word-break: break-word;
+}
+.message-loading {
+  padding: 12px 20px;
+  font-size: 18px;
+}
+.loading-dots {
+  animation: dotPulse 1.4s infinite;
+}
+@keyframes dotPulse {
+  0%, 20% { opacity: 0; }
+  50% { opacity: 1; }
+  100% { opacity: 0; }
+}
+.message-md {
+  padding: 10px 14px;
+}
+.message-md :deep(table) {
+  border-collapse: collapse;
+  margin: 6px 0;
+  font-size: 12px;
+}
+.message-md :deep(th), .message-md :deep(td) {
+  border: 1px solid #ddd;
+  padding: 4px 8px;
+  text-align: left;
+}
+.message-md :deep(th) {
+  background: #f5f5f5;
+}
+.message-md :deep(p) { margin: 4px 0; }
+.message-md :deep(strong) { font-weight: 600; }
+.message-md :deep(code) {
+  background: rgba(0,0,0,0.05);
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-size: 13px;
+}
+.message-md :deep(pre) {
+  background: rgba(0,0,0,0.05);
+  padding: 8px;
+  border-radius: 6px;
+  overflow-x: auto;
+  font-size: 13px;
 }
 
 .message-user {

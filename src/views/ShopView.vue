@@ -251,7 +251,17 @@
       <el-form v-if="shop" label-position="top" size="default">
         <el-form-item label="收货人"><el-input v-model="orderForm.receiverName" placeholder="姓名" /></el-form-item>
         <el-form-item label="联系电话"><el-input v-model="orderForm.receiverPhone" placeholder="手机号" /></el-form-item>
-        <el-form-item label="收货地址"><el-input v-model="orderForm.receiverAddress" placeholder="详细地址" /></el-form-item>
+        <el-form-item label="收货地址"><el-input v-model="orderForm.receiverAddress" placeholder="详细地址" />
+          <div class="geo-actions">
+            <el-button size="small" :loading="orderGeoLoading" @click="fillOrderPosition">获取当前位置</el-button>
+          </div>
+        </el-form-item>
+        <el-form-item label="经度">
+          <el-input-number v-model="orderForm.receiverLongitude" :precision="6" style="width:100%" />
+        </el-form-item>
+        <el-form-item label="纬度">
+          <el-input-number v-model="orderForm.receiverLatitude" :precision="6" style="width:100%" />
+        </el-form-item>
         <el-form-item label="备注"><el-input v-model="orderForm.remark" placeholder="口味、配送要求等" /></el-form-item>
         <div class="order-summary">
           <div class="order-summary-item" v-for="item in orderItems" :key="item.shopItemId">
@@ -373,9 +383,23 @@ const orderItems = computed<OrderCreateItem[]>(() =>
 )
 
 const orderDialogVisible = ref(false); const orderSubmitting = ref(false)
-const orderForm = reactive({ receiverName: '', receiverPhone: '', receiverAddress: '', remark: '' })
+const orderForm = reactive({ receiverName: '', receiverPhone: '', receiverAddress: '', receiverLongitude: 0, receiverLatitude: 0, remark: '' })
+const orderGeoLoading = ref(false)
 
 // 打开结算弹窗。
+const fillOrderPosition = async () => {
+  orderGeoLoading.value = true
+  const pos = await locationStore.getPositionNow()
+  if (pos.coordinate) {
+    orderForm.receiverLongitude = pos.coordinate.longitude
+    orderForm.receiverLatitude = pos.coordinate.latitude
+    if (pos.address && pos.address !== '定位中...' && pos.address !== '地址解析失败') {
+      orderForm.receiverAddress = pos.address
+    }
+  }
+  orderGeoLoading.value = false
+}
+
 const goCheckout = () => {
   if (!userStore.isLoggedIn) { ElMessage.warning('请先登录'); router.push({ path: '/login', query: { redirect: route.fullPath } }); return }
   // 从选中的收货地址自动填充
@@ -384,6 +408,8 @@ const goCheckout = () => {
     receiverName: (loc?.name as string) || '',
     receiverPhone: (loc?.phone as string) || '',
     receiverAddress: (loc?.address as string) || '',
+    receiverLongitude: (loc?.longitude as number) || Number(shop.value?.longitude) || 0,
+    receiverLatitude: (loc?.latitude as number) || Number(shop.value?.latitude) || 0,
     remark: '',
   })
   orderDialogVisible.value = true
@@ -399,8 +425,6 @@ const submitOrder = async () => {
     await createOrderApi({
       shopId: shop.value.shopId,
       ...orderForm,
-      receiverLongitude: (loc?.longitude as number) || Number(shop.value.longitude),
-      receiverLatitude: (loc?.latitude as number) || Number(shop.value.latitude),
       token: orderToken,
       remark: orderForm.remark || undefined,
       items: orderItems.value,

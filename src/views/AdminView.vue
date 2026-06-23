@@ -10,7 +10,7 @@
       </el-select>
     </div>
 
-    <el-table :data="records" border stripe size="small" v-loading="loading" @row-click="openDetail">
+    <el-table :data="records" border stripe size="small" v-loading="loading" empty-text="暂无记录" @row-click="openDetail">
       <el-table-column label="时间" width="130" align="center">
         <template #default="{ row }">{{ row.createTime?.replace('T', ' ').substring(0, 19) }}</template>
       </el-table-column>

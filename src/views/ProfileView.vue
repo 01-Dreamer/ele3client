@@ -71,7 +71,7 @@
           <span>密码</span>
         </div>
         <div class="bind-right">
-          <span class="bind-account">已设置</span>
+          <span class="bind-account"></span>
           <el-button type="primary" link size="small" @click="showChangePassword = true">
             修改密码
           </el-button>
@@ -93,7 +93,7 @@
             :loading="campusLoading"
             @click="openCampusBind"
           >
-            {{ userStore.userInfo?.campusId ? '换绑定' : '绑定校园' }}
+            {{ userStore.userInfo?.campusId ? '更换绑定' : '绑定校园' }}
           </el-button>
         </div>
       </div>
@@ -163,7 +163,8 @@
       </div>
       <div v-else style="text-align:center;padding:10px 0">
         <img v-if="rechargeQr" :src="rechargeQr" style="display:block;margin:0 auto;width:200px;height:200px" />
-        <p style="font-size:14px;color:#666;margin:12px 0 0">请使用支付宝扫码充值</p>
+        <p style="font-size:14px;color:#666;margin:12px 0 8px">请使用支付宝扫码充值</p>
+        <el-button size="small" :loading="rechargeQrRefreshing" @click="refreshRechargeQr">刷新二维码</el-button>
       </div>
     </el-dialog>
 
@@ -189,7 +190,7 @@ import { useLocationStore } from '@/stores/location'
 import { showErrorMessage } from '@/api/http'
 import { updateUserProfileApi } from '@/api/user'
 import { uploadImage, cleanupUpload, type UploadResult } from '@/services/fileUpload'
-import { getBalanceApi, alipayRechargeApi, alipayWithdrawApi, getPaymentStatusApi } from '@/api/payment'
+import { getBalanceApi, alipayRechargeApi, alipayWithdrawApi, getPaymentStatusApi, refreshAlipayApi } from '@/api/payment'
 import {
   changePasswordApi,
   checkYnuBindQrCodeApi,
@@ -344,7 +345,26 @@ const fetchBindings = async () => {
   }
 
   // 启动充值支付轮询。
+  let currentRechargePaymentId = ''
+
+  const rechargeQrRefreshing = ref(false)
+
+  const refreshRechargeQr = async () => {
+    if (!currentRechargePaymentId || rechargeQrRefreshing.value) return
+    stopRechargePoll()
+    rechargeQrRefreshing.value = true
+    try {
+      const result = await refreshAlipayApi(currentRechargePaymentId, userStore.token)
+      rechargeQr.value = await createQrCodeDataUrl(result.payUrl)
+      currentRechargePaymentId = result.paymentId
+      startRechargePoll(result.paymentId)
+      ElMessage.success('二维码已刷新')
+    } catch (e) { showErrorMessage(e) }
+    finally { rechargeQrRefreshing.value = false }
+  }
+
   const startRechargePoll = (paymentId: string) => {
+    currentRechargePaymentId = paymentId
     stopRechargePoll()
     rechargeTimer = window.setInterval(async () => {
       try {

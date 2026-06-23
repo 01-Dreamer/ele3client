@@ -59,17 +59,7 @@ const computePowResponse = async (): Promise<string> => {
 
 /** 获取或预计算 PoW 响应（缓存复用） */
 export const getPowResponse = async (): Promise<string> => {
-  if (cachedPowResponse) return cachedPowResponse
-  if (powPromise) return powPromise
-  powPromise = computePowResponse().then((r) => {
-    cachedPowResponse = r
-    powPromise = null
-    return r
-  }).catch(() => {
-    powPromise = null
-    return null
-  })
-  return powPromise
+  return computePowResponse()
 }
 
 /** 标记当前 PoW 已失效，下次获取时重新计算 */

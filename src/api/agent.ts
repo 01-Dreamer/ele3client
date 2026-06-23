@@ -35,24 +35,48 @@ export const getChatHistoryApi = (cursor?: string, size = 30) => {
   return apiRequest<CursorPageVO<ChatHistoryItem>>(`/api/agent/chat-history${qs ? `?${qs}` : ''}`)
 }
 
+export interface AgentContext {
+  longitude?: number
+  latitude?: number
+  address?: string
+  pageContext?: string
+}
+
 /** Agent 对话（SSE 流式），返回 ReadableStream 供逐行读取 */
-export const chatStreamApi = async (content: string): Promise<ReadableStream<Uint8Array>> => {
-  let pow = await getPowResponse()
-  if (!pow) throw new Error('PoW 验证失败')
-
-  const { http } = await import('./http')
-  const tryRequest = (currentPow: string) =>
-    http.post('/api/agent/chat', { content }, {
-      headers: { 'X-Agent-Pow-Response': currentPow },
-      responseType: 'stream',
-    })
-
-  let response = await tryRequest(pow)
-  if (response.status === 403) {
-    invalidatePow()
-    pow = await getPowResponse()
-    if (!pow) throw new Error('PoW 重试失败')
-    response = await tryRequest(pow)
+export const chatStreamApi = async (content: string, ctx?: AgentContext): Promise<ReadableStream<Uint8Array>> => {
+  const getToken = () => {
+    try { return JSON.parse(localStorage.getItem('ele3_user') || '{}').token || '' } catch { return '' }
   }
-  return response.data as ReadableStream<Uint8Array>
+
+  const { API_BASE_URL: base } = await import('./http')
+  const doFetch = async () => {
+    const pow = await getPowResponse()
+    if (!pow) throw new Error('PoW 验证失败')
+    const headers: Record<string, string> = { 'Content-Type': 'application/json', 'X-Agent-Pow-Response': pow }
+    const token = getToken()
+    if (token) headers['Authorization'] = `Bearer ${token}`
+    return fetch(`${base}/api/agent/chat`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        content,
+        longitude: ctx?.longitude ?? null,
+        latitude: ctx?.latitude ?? null,
+        address: ctx?.address ?? null,
+        pageContext: ctx?.pageContext ?? null,
+      }),
+    })
+  }
+
+  let res = await doFetch()
+  if (res.status === 403) {
+    invalidatePow()
+    res = await doFetch()
+  }
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(text || '请求失败')
+  }
+  if (!res.body) throw new Error('不支持流式响应')
+  return res.body
 }

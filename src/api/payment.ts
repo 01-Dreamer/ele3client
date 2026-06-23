@@ -69,3 +69,8 @@ export const alipayWithdrawApi = (payload: WalletWithdrawRequest, token: string)
 export const getPaymentStatusApi = (paymentId: string, token: string) => {
   return apiRequest<PaymentStatusVO>(`/api/payment/status?paymentId=${paymentId}`, { token })
 }
+
+/** 刷新支付宝二维码 */
+export const refreshAlipayApi = (paymentId: string, token: string) => {
+  return apiRequest<PaymentCreateVO>(`/api/payment/refresh-alipay/${paymentId}`, { method: 'POST', token })
+}
