@@ -71,3 +71,41 @@ export const clearRiskBySliderApi = (payload: RiskClearBySliderRequest) => {
     skipRiskChallenge: true,
   })
 }
+
+// --- 管理员接口 ---
+
+export interface RiskTextRecordVO {
+  id: string
+  sourceType: string
+  sourceId: string
+  userId: string
+  content: string
+  status: number  // 0待处理,1已处理
+  handleOpinion: string
+  handleTime: string
+  createTime: string
+  updateTime: string
+}
+
+export interface PageVO<T> {
+  records: T[]
+  total: number
+  page: number
+  size: number
+}
+
+export const listRiskTextRecordsApi = (params: { status?: number; page?: number; size?: number }) => {
+  const query = new URLSearchParams()
+  if (params.status !== undefined) query.set('status', String(params.status))
+  if (params.page !== undefined) query.set('page', String(params.page))
+  if (params.size !== undefined) query.set('size', String(params.size))
+  const qs = query.toString()
+  return apiRequest<PageVO<RiskTextRecordVO>>(`/api/risk/admin/text-records${qs ? `?${qs}` : ''}`)
+}
+
+export const handleTextRecordApi = (id: string, handleOpinion: string) => {
+  return apiRequest<null>('/api/risk/admin/handle-text-record', {
+    method: 'POST',
+    body: { id, handleOpinion },
+  })
+}

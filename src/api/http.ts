@@ -53,7 +53,7 @@ const getStoredToken = () => {
   }
 }
 
-const http = axios.create({
+export const http = axios.create({
   baseURL: API_BASE_URL,
 })
 

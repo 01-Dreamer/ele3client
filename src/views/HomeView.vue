@@ -117,7 +117,7 @@
 
     <ul v-else class="merchants">
       <li v-for="shop in shops" :key="shop.shopId" @click="clickMerchant(shop.shopId)">
-        <el-image :src="shop.avatar" class="merchants-img" fit="cover" lazy />
+        <el-image :src="shop.avatar || '/default-shop.png'" class="merchants-img" fit="cover" lazy />
 
         <div class="merchants-info">
           <div class="merchants-info-h">
@@ -152,19 +152,11 @@
           </div>
 
           <div class="merchants-info-explain" v-if="shop.description">
-            <el-tag type="info" size="small" effect="plain">{{ shop.description }}</el-tag>
+            <el-tooltip :content="shop.description" placement="top" :show-after="400">
+              <el-tag type="info" size="small" effect="plain" class="desc-tag">{{ shop.description.length > 20 ? shop.description.slice(0, 20) + '...' : shop.description }}</el-tag>
+            </el-tooltip>
           </div>
 
-          <div class="merchants-info-promotion" v-for="(promo, pIndex) in shop.promotions" :key="pIndex">
-            <div class="promo-left">
-              <el-tag :color="promo.color" effect="dark" size="small" class="promo-icon">{{ promo.icon }}</el-tag>
-              <span class="promo-text">{{ promo.text }}</span>
-            </div>
-            <div class="promo-right" v-if="pIndex === 0 && shop.promotions.length > 1">
-              <span>{{ shop.promotions.length }}个活动</span>
-              <el-icon><CaretBottom /></el-icon>
-            </div>
-          </div>
         </div>
       </li>
 
@@ -284,7 +276,6 @@ const PAGE_SIZE = 5
 interface ShopDisplay extends ShopVO {
   distanceText: string
   durationText: string
-  promotions: { color: string; icon: string; text: string }[]
 }
 
 const shops = ref<ShopDisplay[]>([])
@@ -317,9 +308,6 @@ const buildShopDisplay = async (shop: ShopVO): Promise<ShopDisplay> => {
     ...shop,
     distanceText: distText,
     durationText: duration > 0 ? `约${duration}分钟` : '',
-    promotions: shop.description
-      ? [{ color: '#f07373', icon: '减', text: shop.description }]
-      : [],
   }
 }
 
@@ -785,6 +773,12 @@ onUnmounted(() => {
 
 .merchants-info-explain {
   margin-bottom: 8px;
+}
+.desc-tag {
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .merchants-info-promotion {

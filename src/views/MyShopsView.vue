@@ -24,7 +24,7 @@
 
     <ul v-else class="shop-list">
       <li v-for="shop in shops" :key="shop.shopId">
-        <el-image :src="shop.avatar" class="shop-img" fit="cover" lazy />
+        <el-image :src="shop.avatar || '/default-shop.png'" class="shop-img" fit="cover" lazy />
         <div class="shop-info" @click="goShop(shop.shopId)">
           <div class="shop-info-h">
             <h3>{{ shop.name }}</h3>

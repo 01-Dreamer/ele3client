@@ -7,7 +7,7 @@
 
     <section v-if="shop" class="shop-hero">
     <div class="shop-summary">
-        <el-image class="shop-cover" :src="shop.avatar" fit="cover" />
+        <el-image class="shop-cover" :src="shop.avatar || '/default-shop.png'" fit="cover" />
         <div class="shop-copy">
           <h1>{{ shop.name }}</h1>
           <p>{{ shop.description }}</p>
@@ -113,7 +113,7 @@
         </div>
 
         <div v-for="product in displayItems" :key="product.itemId" class="product-item">
-          <el-image class="product-img" :src="product.image" fit="cover" lazy />
+          <el-image class="product-img" :src="product.image || '/default-shop.png'" fit="cover" lazy />
           <div class="product-info">
             <h3>{{ product.name }}</h3>
             <p>{{ product.description }}</p>
@@ -153,7 +153,7 @@
         </div>
 
         <div v-for="(product, idx) in items" :key="product.itemId" class="product-item product-item-owner">
-          <el-image class="product-img" :src="product.image" fit="cover" lazy />
+          <el-image class="product-img" :src="product.image || '/default-shop.png'" fit="cover" lazy />
           <div class="product-info">
             <h3>{{ product.name }}</h3>
             <p>{{ product.description }}</p>

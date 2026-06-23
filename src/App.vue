@@ -95,9 +95,12 @@
 
 <script setup lang="ts">
 import { ref, nextTick } from 'vue'
+import { ElMessage } from 'element-plus'
 import { RouterView, useRouter, useRoute } from 'vue-router'
 import { HomeFilled, Message, Document, User, Cpu, Position } from '@element-plus/icons-vue'
 import GlobalRiskChallenge from '@/components/GlobalRiskChallenge.vue'
+import { chatStreamApi, getChatHistoryApi, type ChatHistoryItem } from '@/api/agent'
+import { getPowResponse } from '@/services/agentPow'
 
 const router = useRouter()
 const route = useRoute()
@@ -114,14 +117,34 @@ const navigateTo = (path: string) => {
 // AI Chat Logic
 const isAiOpen = ref(false)
 const chatInput = ref('')
-const messages = ref<{role: 'user'|'ai', text: string}[]>([
-  { role: 'ai', text: '你好！我是你的专属AI小助手，有什么可以帮你的吗？' }
-])
+const messages = ref<{role: 'user'|'ai'|'tool', text: string}[]>([])
 const messageContainer = ref<HTMLElement | null>(null)
+const loadingHistory = ref(false)
+const historyCursor = ref<string | undefined>(undefined)
+const historyHasMore = ref(true)
+
+const loadHistory = async () => {
+  loadingHistory.value = true
+  try {
+    const result = await getChatHistoryApi(undefined, 30)
+    const items = (result.records as ChatHistoryItem[]) || []
+    messages.value = items.reverse().map(m => ({
+      role: (m.role === 'AGENT' ? 'ai' : m.role === 'USER' ? 'user' : 'tool') as 'user' | 'ai' | 'tool',
+      text: m.content,
+    }))
+    historyCursor.value = result.nextCursor || undefined
+    historyHasMore.value = result.hasMore ?? false
+    await nextTick()
+    scrollToBottom()
+  } catch { /* */ }
+  finally { loadingHistory.value = false }
+}
 
 const toggleAiChat = () => {
   if (!isAiOpen.value) {
     isAiOpen.value = true
+    getPowResponse() // 提前预计算 PoW
+    if (messages.value.length === 0) loadHistory()
   }
 }
 
@@ -129,21 +152,68 @@ const closeAiChat = () => {
   isAiOpen.value = false
 }
 
-const sendMessage = () => {
-  if (!chatInput.value.trim()) return
-  
-  // Add user message
-  messages.value.push({ role: 'user', text: chatInput.value })
-  const currentUserInput = chatInput.value
+const aiLoading = ref(false)
+
+const sendMessage = async () => {
+  const text = chatInput.value.trim()
+  if (!text || aiLoading.value) return
+
+  messages.value.push({ role: 'user', text })
   chatInput.value = ''
-  
   scrollToBottom()
-  
-  // Simulate AI response
-  setTimeout(() => {
-    messages.value.push({ role: 'ai', text: '你好' })
+  aiLoading.value = true
+
+  // 预占 AI 回复位置
+  const aiIdx = messages.value.push({ role: 'ai', text: '' }) - 1
+
+  try {
+    const stream = await chatStreamApi(text)
+    const reader = stream.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
+    let currentEvent = ''
+
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+
+      const parts = buffer.split('\n\n')
+      buffer = parts.pop() || ''
+
+      for (const part of parts) {
+        const lines = part.split('\n')
+        let eventType = ''
+        let data = ''
+        for (const line of lines) {
+          if (line.startsWith('event:')) eventType = line.slice(6).trim()
+          else if (line.startsWith('data:')) data = line.slice(5).trim()
+        }
+        if (!data) continue
+
+        if (eventType === 'tool_call') {
+          try {
+            const obj = JSON.parse(data)
+            messages.value[aiIdx].text = obj.status || data
+          } catch { messages.value[aiIdx].text = data }
+        } else if (eventType === 'tool_result') {
+          messages.value[aiIdx].text += ' ' + data
+        } else if (eventType === 'reply') {
+          messages.value[aiIdx].text = data
+        } else if (eventType === 'error') {
+          messages.value.splice(aiIdx, 1)
+          ElMessage({ message: data, type: 'error', duration: 2000 })
+          break
+        }
+      }
+    }
+  } catch (e: any) {
+    messages.value.splice(aiIdx, 1)  // 移除占位
+    ElMessage({ message: e?.message || '请求失败', type: 'error', duration: 2000 })
+  } finally {
+    aiLoading.value = false
     scrollToBottom()
-  }, 500)
+  }
 }
 
 const scrollToBottom = () => {
